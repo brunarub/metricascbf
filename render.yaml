@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: insta-dash-web
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: GRAPH_API_VERSION
+        value: v21.0
+      - key: IG_ACCOUNTS
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_SHEET_TAB
+        value: Posts
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false
+
+  - type: cron
+    name: insta-dash-daily-sync
+    env: node
+    buildCommand: npm install
+    schedule: "0 9 * * *"
+    startCommand: npm run sync
+    envVars:
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: GRAPH_API_VERSION
+        value: v21.0
+      - key: IG_ACCOUNTS
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_SHEET_TAB
+        value: Posts
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false

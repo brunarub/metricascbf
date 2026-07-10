@@ -1,0 +1,18 @@
+{
+  "name": "insta-dash",
+  "version": "1.0.0",
+  "description": "Dashboard de métricas orgânicas do Instagram",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "sync": "node src/index.js",
+    "test-connection": "node src/test-connection.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "google-auth-library": "^9.4.0",
+    "googleapis": "^128.0.0"
+  }
+}

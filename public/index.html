@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>insta-dash — Métricas Orgânicas</title>
+  <style>
+    :root {
+      --primary: #FFD700;      /* dourado Brasileiras — fills, bordas, destaques */
+      --primary-ink: #8a6d00;  /* dourado escurecido — só para texto sobre branco (contraste) */
+      --navy: #0A1628;         /* azul-marinho — header, textos, números */
+      --navy-soft: rgba(10,22,40,0.65);
+      --navy-border: rgba(10,22,40,0.14);
+      --bg: #FFFFFF;
+      --bg-alt: #F8F9FA;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--navy); min-height: 100vh; }
+
+    header { background: var(--navy); padding: 20px 24px; display: flex; align-items: center; gap: 12px; border-bottom: 4px solid var(--primary); }
+    header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; color: #fff; }
+    header h1 .brand-accent { color: var(--primary); }
+    header span { font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.75); margin-left: auto; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* KPIs */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kpi { background: var(--bg); border: 1px solid var(--navy-border); border-top: 3px solid var(--primary); border-radius: 10px; padding: 16px; }
+    .kpi-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--navy-soft); margin-bottom: 6px; }
+    .kpi-value { font-size: 1.7rem; font-weight: 800; color: var(--navy); }
+    .kpi-value.loading { color: #b8bec8; font-size: 1rem; }
+
+    /* Abas */
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tab { padding: 8px 18px; border-radius: 20px; border: 1.5px solid var(--navy); background: transparent; color: var(--navy); font-weight: 700; cursor: pointer; font-size: 0.85rem; transition: all .15s; }
+    .tab:hover { background: rgba(10,22,40,0.05); }
+    .tab.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+    /* Filtros */
+    .filters { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+    .filters input { background: var(--bg); border: 1.5px solid var(--navy-border); color: var(--navy); padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; width: 240px; font-weight: 600; }
+    .filters input[type="date"] { width: 150px; }
+    .filters select { background: var(--bg); border: 1.5px solid var(--navy-border); color: var(--navy); padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; }
+    .filters input:focus, .filters select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,215,0,0.25); }
+    .filters label { font-size: 0.8rem; font-weight: 600; color: var(--navy-soft); display: flex; align-items: center; gap: 6px; }
+    .btn-export { margin-left: auto; background: var(--bg); border: 1.5px solid var(--navy); color: var(--navy); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.82rem; font-weight: 700; transition: background .15s; }
+    .btn-export:hover { background: var(--primary); border-color: var(--primary); }
+
+    /* Tabela */
+    .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--navy-border); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    thead th { background: var(--navy); padding: 12px 14px; text-align: left; color: #fff; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; white-space: nowrap; user-select: none; }
+    thead th:hover { color: var(--primary); }
+    thead th .sort-arrow { margin-left: 4px; opacity: 0.5; }
+    thead th.sorted .sort-arrow { opacity: 1; color: var(--primary); }
+    tbody tr { background: var(--bg); border-top: 1px solid var(--navy-border); transition: background .1s; }
+    tbody tr:nth-child(even) { background: var(--bg-alt); }
+    tbody tr:hover { background: rgba(255,215,0,0.12); }
+    td { padding: 10px 14px; vertical-align: middle; }
+    td.thumb { width: 52px; }
+    td.thumb img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; display: block; }
+    td.thumb .no-thumb { width: 44px; height: 44px; background: var(--bg-alt); border: 1px solid var(--navy-border); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+    .post-link { color: var(--navy); text-decoration: none; font-size: 0.9rem; font-weight: 700; }
+    .post-link:hover { color: var(--primary-ink); }
+    .caption { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #444; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
+    .badge-foto { background: #E8ECF3; color: var(--navy); }
+    .badge-video { background: var(--primary); color: var(--navy); }
+    .badge-carrossel { background: #D9E2EC; color: var(--navy); }
+    .badge-reels { background: var(--navy); color: var(--primary); }
+    .profile-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot-copa_do_brasil { background: #3d99e0; }
+    .dot-brasileirao { background: #3dcc3d; }
+    .dot-brasileiras { background: #cc3dcc; }
+    .metric { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .metric.loading { color: #b8bec8; }
+    .eng-rate { color: var(--primary-ink); font-weight: 800; }
+    .comparison.positive { color: #2e7d32; }
+    .comparison.negative { color: #c62828; }
+
+    /* Estado vazio / loading */
+    .state-msg { text-align: center; padding: 60px; color: var(--navy-soft); }
+    .state-msg .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .state-msg p { font-size: 0.9rem; font-weight: 600; }
+    .phase-badge { background: var(--bg-alt); border: 1px solid var(--navy-border); color: var(--navy); padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; margin-left: 12px; }
+    .phase-badge.loading { background: rgba(255,215,0,0.18); border-color: var(--primary); color: var(--primary-ink); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>📊</div>
+    <h1><span class="brand-accent">Brasileiras</span> · insta-dash</h1>
+    <span id="last-update">Carregando...</span>
+  </header>
+
+  <div class="container">
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div></div>
+      <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div></div>
+      <div class="kpi"><div class="kpi-label">Comentários</div><div class="kpi-value" id="kpi-comments">—</div></div>
+      <div class="kpi"><div class="kpi-label">Visualizações Totais</div><div class="kpi-value" id="kpi-views">—</div></div>
+      <div class="kpi"><div class="kpi-label">Seguidores Ganhos</div><div class="kpi-value" id="kpi-follows">—</div></div>
+      <div class="kpi"><div class="kpi-label">Eng. Médio</div><div class="kpi-value" id="kpi-eng">—</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="todos">Todos</button>
+      <button class="tab" data-tab="copa_do_brasil">Copa do Brasil</button>
+      <button class="tab" data-tab="brasileirao">Brasileirão</button>
+      <button class="tab" data-tab="brasileiras">Brasileiras</button>
+    </div>
+
+    <div class="filters">
+      <input type="text" id="search" placeholder="Buscar legenda ou perfil..." />
+      <select id="type-filter">
+        <option value="">Todos os tipos</option>
+        <option value="IMAGE">Foto</option>
+        <option value="VIDEO">Vídeo</option>
+        <option value="CAROUSEL_ALBUM">Carrossel</option>
+        <option value="REELS">Reels</option>
+      </select>
+      <label>De <input type="date" id="date-start" /></label>
+      <label>Até <input type="date" id="date-end" /></label>
+      <button class="btn-export" id="date-clear" onclick="clearDateFilter()">✕ Limpar datas</button>
+      <span id="phase-indicator" class="phase-badge loading">⏳ Carregando...</span>
+      <button class="btn-export" onclick="exportCSV()">⬇ CSV</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="posts-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th data-col="account_label">Perfil <span class="sort-arrow">↕</span></th>
+            <th data-col="timestamp">Data <span class="sort-arrow">↕</span></th>
+            <th data-col="media_type">Tipo <span class="sort-arrow">↕</span></th>
+            <th>Legenda</th>
+            <th data-col="like_count" class="metric">Curtidas <span class="sort-arrow">↕</span></th>
+            <th data-col="comments_count" class="metric">Comentários <span class="sort-arrow">↕</span></th>
+            <th data-col="views" class="metric">Visualizações <span class="sort-arrow">↕</span></th>
+            <th data-col="saved" class="metric">Salvamentos <span class="sort-arrow">↕</span></th>
+            <th data-col="shares" class="metric">Compartilhamentos <span class="sort-arrow">↕</span></th>
+            <th data-col="follows" class="metric">Seguidores Ganhos <span class="sort-arrow">↕</span></th>
+            <th data-col="eng_rate" class="metric">Engajamento <span class="sort-arrow">↕</span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr><td colspan="13"><div class="state-msg"><div class="icon">⏳</div><p>Carregando posts...</p></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let allPosts = [];
+    let insights = {};
+    let activeTab = 'todos';
+    let sortCol = 'timestamp';
+    let sortDir = -1;
+    let phase = 1;
+
+    const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels' };
+    const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels' };
+    const PROFILE_COLORS = { copa_do_brasil: '#3d99e0', brasileirao: '#3dcc3d', brasileiras: '#cc3dcc' };
+
+    function fmt(n) {
+      if (n === null || n === undefined || n === '') return '—';
+      return Number(n).toLocaleString('pt-BR');
+    }
+
+    function fmtDate(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function getEngRate(post) {
+      const ins = insights[post.id] || {};
+      const interactions = (post.like_count || 0) + (post.comments_count || 0) + (ins.saved || 0) + (ins.shares || 0);
+      const reach = ins.reach;
+      if (!reach) return null;
+      return ((interactions / reach) * 100).toFixed(2);
+    }
+
+    function getFilteredPosts() {
+      const search = document.getElementById('search').value.toLowerCase();
+      const typeFilter = document.getElementById('type-filter').value;
+      const dateStart = document.getElementById('date-start').value;
+      const dateEnd = document.getElementById('date-end').value;
+      return allPosts.filter(p => {
+        if (activeTab !== 'todos' && p.account_label !== activeTab) return false;
+        if (typeFilter && p.media_type !== typeFilter) return false;
+        if (search && !(p.caption || '').toLowerCase().includes(search) && !(p.account_label || '').toLowerCase().includes(search)) return false;
+        if (dateStart || dateEnd) {
+          const postDate = p.timestamp ? p.timestamp.substring(0, 10) : '';
+          if (dateStart && postDate < dateStart) return false;
+          if (dateEnd && postDate > dateEnd) return false;
+        }
+        return true;
+      });
+    }
+
+    function clearDateFilter() {
+      document.getElementById('date-start').value = '';
+      document.getElementById('date-end').value = '';
+      renderTable();
+    }
+
+    function getSortedPosts(posts) {
+      return [...posts].sort((a, b) => {
+        let va, vb;
+        if (sortCol === 'views') { va = insights[a.id]?.views || 0; vb = insights[b.id]?.views || 0; }
+        else if (sortCol === 'saved') { va = insights[a.id]?.saved || 0; vb = insights[b.id]?.saved || 0; }
+        else if (sortCol === 'shares') { va = insights[a.id]?.shares || 0; vb = insights[b.id]?.shares || 0; }
+        else if (sortCol === 'follows') { va = insights[a.id]?.follows || 0; vb = insights[b.id]?.follows || 0; }
+        else if (sortCol === 'eng_rate') { va = parseFloat(getEngRate(a)) || 0; vb = parseFloat(getEngRate(b)) || 0; }
+        else if (sortCol === 'timestamp') { va = new Date(a.timestamp); vb = new Date(b.timestamp); }
+        else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
+        if (va < vb) return -1 * sortDir;
+        if (va > vb) return 1 * sortDir;
+        return 0;
+      });
+    }
+
+    function renderTable() {
+      const posts = getSortedPosts(getFilteredPosts());
+      const tbody = document.getElementById('table-body');
+
+      if (posts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="13"><div class="state-msg"><div class="icon">🔍</div><p>Nenhum post encontrado.</p></div></td></tr>';
+        updateKPIs([]);
+        return;
+      }
+
+      tbody.innerHTML = posts.map(p => {
+        const ins = insights[p.id] || {};
+        const engRate = getEngRate(p);
+        const thumb = p.thumbnail_url || p.media_url;
+        const color = PROFILE_COLORS[p.account_label] || '#888';
+        const typeLabel = TYPE_LABELS[p.media_type] || p.media_type || '?';
+        const typeClass = TYPE_CLASS[p.media_type] || '';
+
+        return `<tr>
+          <td class="thumb">${thumb ? `<img src="${thumb}" onerror="this.style.display='none'"/>` : '<div class="no-thumb">📷</div>'}</td>
+          <td><span class="profile-dot" style="background:${color}"></span>${p.account_label || '—'}</td>
+          <td style="white-space:nowrap">${fmtDate(p.timestamp)}</td>
+          <td><span class="badge ${typeClass}">${typeLabel}</span></td>
+          <td class="caption" title="${(p.caption||'').replace(/"/g,'&quot;')}">${p.caption || '—'}</td>
+          <td class="metric">${fmt(p.like_count)}</td>
+          <td class="metric">${fmt(p.comments_count)}</td>
+          <td class="metric ${phase===1?'loading':''}">${fmt(ins.views)}</td>
+          <td class="metric ${phase===1?'loading':''}">${fmt(ins.saved)}</td>
+          <td class="metric ${phase===1?'loading':''}">${fmt(ins.shares)}</td>
+          <td class="metric ${phase===1?'loading':''}">${fmt(ins.follows)}</td>
+          <td class="metric eng-rate">${engRate ? engRate+'%' : (phase===1?'…':'—')}</td>
+          <td><a class="post-link" href="${p.permalink}" target="_blank">↗</a></td>
+        </tr>`;
+      }).join('');
+
+      updateKPIs(posts);
+    }
+
+    function updateKPIs(posts) {
+      document.getElementById('kpi-posts').textContent = posts.length;
+      document.getElementById('kpi-likes').textContent = fmt(posts.reduce((s, p) => s + (p.like_count || 0), 0));
+      document.getElementById('kpi-comments').textContent = fmt(posts.reduce((s, p) => s + (p.comments_count || 0), 0));
+      const totalViews = posts.reduce((s, p) => s + (insights[p.id]?.views || 0), 0);
+      document.getElementById('kpi-views').textContent = totalViews > 0 ? fmt(totalViews) : '—';
+      const totalFollows = posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0);
+      document.getElementById('kpi-follows').textContent = totalFollows > 0 ? fmt(totalFollows) : '—';
+      const rates = posts.map(p => parseFloat(getEngRate(p))).filter(r => !isNaN(r));
+      document.getElementById('kpi-eng').textContent = rates.length > 0 ? (rates.reduce((s,r)=>s+r,0)/rates.length).toFixed(2)+'%' : '—';
+    }
+
+    // Fase 1: carrega posts básicos
+    async function loadPosts() {
+      try {
+        const res = await fetch('/api/posts');
+        if (!res.ok) throw new Error(await res.text());
+        allPosts = await res.json();
+        phase = 1;
+        document.getElementById('phase-indicator').textContent = '📥 Métricas básicas carregadas';
+        document.getElementById('phase-indicator').className = 'phase-badge loading';
+        document.getElementById('last-update').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+        renderTable();
+        loadInsights();
+      } catch (err) {
+        document.getElementById('table-body').innerHTML = `<tr><td colspan="13"><div class="state-msg"><div class="icon">❌</div><p>${err.message}</p></div></td></tr>`;
+        document.getElementById('phase-indicator').textContent = '❌ Erro ao carregar';
+      }
+    }
+
+    // Fase 2: enriquece com insights de todos os posts carregados, em lotes de 10
+    async function loadInsights() {
+      const allIds = allPosts.map(p => p.id);
+      if (allIds.length === 0) return;
+
+      const chunkSize = 10;
+      let loaded = 0;
+
+      for (let i = 0; i < allIds.length; i += chunkSize) {
+        const chunk = allIds.slice(i, i + chunkSize);
+        try {
+          const res = await fetch('/api/insights/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ postIds: chunk }),
+          });
+          const data = await res.json();
+          Object.assign(insights, data);
+        } catch (err) {
+          console.warn('Erro ao carregar lote de insights:', err);
+        }
+
+        loaded += chunk.length;
+        document.getElementById('phase-indicator').textContent = `⏳ Métricas ${loaded}/${allIds.length}...`;
+        renderTable();
+      }
+
+      phase = 2;
+      document.getElementById('phase-indicator').textContent = '✅ Métricas completas';
+      document.getElementById('phase-indicator').className = 'phase-badge';
+      renderTable();
+    }
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        activeTab = btn.dataset.tab;
+        renderTable();
+      });
+    });
+
+    // Filtros
+    document.getElementById('search').addEventListener('input', renderTable);
+    document.getElementById('type-filter').addEventListener('change', renderTable);
+    document.getElementById('date-start').addEventListener('change', renderTable);
+    document.getElementById('date-end').addEventListener('change', renderTable);
+
+    // Ordenação
+    document.querySelectorAll('thead th[data-col]').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (sortCol === col) { sortDir *= -1; }
+        else { sortCol = col; sortDir = -1; }
+        document.querySelectorAll('thead th').forEach(t => t.classList.remove('sorted'));
+        th.classList.add('sorted');
+        th.querySelector('.sort-arrow').textContent = sortDir === 1 ? '↑' : '↓';
+        renderTable();
+      });
+    });
+
+    // Export CSV
+    function exportCSV() {
+      const posts = getSortedPosts(getFilteredPosts());
+      const headers = ['ID','Data','Perfil','Tipo','Legenda','Curtidas','Comentários','Visualizações','Salvamentos','Compartilhamentos','Seguidores Ganhos','Engajamento%','Link'];
+      const rows = posts.map(p => {
+        const ins = insights[p.id] || {};
+        const engRate = getEngRate(p) || '';
+        return [
+          p.id, p.timestamp, p.account_label, p.media_type,
+          (p.caption||'').replace(/\n/g,' ').substring(0,200),
+          p.like_count||0, p.comments_count||0,
+          ins.views||'', ins.saved||'', ins.shares||'', ins.follows||'', engRate, p.permalink
+        ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+      });
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob(['﻿'+csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'insta-dash.csv'; a.click();
+    }
+
+    loadPosts();
+  </script>
+</body>
+</html>
