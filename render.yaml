@@ -7,6 +7,10 @@ services:
     envVars:
       - key: META_ACCESS_TOKEN
         sync: false
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
       - key: GRAPH_API_VERSION
         value: v21.0
       - key: IG_ACCOUNTS
@@ -19,6 +23,16 @@ services:
         sync: false
       - key: GOOGLE_PRIVATE_KEY
         sync: false
+
+  - type: cron
+    name: insta-dash-token-refresh
+    env: node
+    buildCommand: npm install
+    schedule: "0 9 1 * *" # 1º dia de cada mês, às 9h UTC — token de 60 dias com folga de sobra
+    startCommand: npm run refresh-token-cron
+    envVars:
+      - key: DASHBOARD_URL
+        sync: false # URL pública do serviço insta-dash-web, ex: https://insta-dash-web.onrender.com
 
   - type: cron
     name: insta-dash-daily-sync

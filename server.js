@@ -1,7 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount } = require('./src/instagram');
+const fs = require('fs');
+const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, refreshAccessToken } = require('./src/instagram');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -123,6 +124,35 @@ app.post('/api/insights/batch', async (req, res) => {
   } catch (err) {
     console.error('Erro /api/insights/batch:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/refresh-token — troca o token atual por um novo de longa duração (~60 dias).
+// Pensado para ser chamado por um cron mensal (ver render.yaml), já que o token de
+// longa duração da Meta expira em 60 dias.
+app.post('/api/refresh-token', async (req, res) => {
+  try {
+    const { access_token, expires_in } = await refreshAccessToken();
+    const expiresInDays = Math.round(expires_in / 86400);
+
+    // Melhor esforço: persiste no .env local para sobreviver a um restart deste processo.
+    // Não tem efeito em ambientes com disco efêmero (ex: cron job separado no Render) —
+    // lá, o token renovado só vale para o processo web em execução até o próximo deploy.
+    try {
+      const envPath = path.join(__dirname, '.env');
+      const envContent = fs.readFileSync(envPath, 'utf8');
+      const updated = envContent.replace(/^META_ACCESS_TOKEN=.*$/m, `META_ACCESS_TOKEN=${access_token}`);
+      fs.writeFileSync(envPath, updated);
+    } catch (fsErr) {
+      console.warn('Não foi possível persistir o novo token em .env:', fsErr.message);
+    }
+
+    console.log(`✅ Token renovado — válido por ~${expiresInDays} dias`);
+    res.json({ success: true, expires_in, expires_in_days: expiresInDays });
+  } catch (err) {
+    const graphError = err.response?.data?.error;
+    console.error('❌ /api/refresh-token — erro:', graphError ? JSON.stringify(graphError, null, 2) : err.message);
+    res.status(500).json({ error: graphError?.message || err.message });
   }
 });
 

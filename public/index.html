@@ -30,6 +30,37 @@
     .kpi-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--navy-soft); margin-bottom: 6px; }
     .kpi-value { font-size: 1.7rem; font-weight: 800; color: var(--navy); }
     .kpi-value.loading { color: #b8bec8; font-size: 1rem; }
+    .kpi-compare { display: block; margin-top: 4px; font-size: 0.72rem; font-weight: 700; }
+    .kpi-compare.positive { color: #2e7d32; }
+    .kpi-compare.negative { color: #c62828; }
+
+    /* Título de seção */
+    .section-title { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--navy); margin: 28px 0 12px; display: flex; align-items: center; gap: 8px; }
+
+    /* Top Posts */
+    .top-posts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .top-posts-col { background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; padding: 14px; }
+    .top-posts-col h3 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); margin-bottom: 10px; }
+    .top-post-card { display: flex; align-items: center; gap: 10px; padding: 8px 0; text-decoration: none; color: var(--navy); border-top: 1px solid var(--navy-border); }
+    .top-post-card:first-child { border-top: none; }
+    .top-post-rank { font-size: 0.8rem; font-weight: 800; color: var(--primary-ink); width: 22px; flex-shrink: 0; }
+    .top-post-card img, .top-post-noimg { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: var(--bg-alt); }
+    .top-post-noimg { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .top-post-info { min-width: 0; }
+    .top-post-caption { font-size: 0.78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .top-post-metric { font-size: 0.78rem; font-weight: 800; color: var(--primary-ink); }
+    .top-empty { font-size: 0.8rem; color: var(--navy-soft); font-weight: 600; }
+
+    /* Gráficos */
+    .charts-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .chart-card { background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; padding: 16px; }
+    .chart-card h3 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); margin-bottom: 12px; }
+
+    /* Badges de performance */
+    .badge-perf-top { background: #E6F4EA; color: #1e7e34; }
+    .badge-perf-low { background: #EDEFF2; color: #5a6472; }
+
+    .print-only { display: none; }
 
     /* Abas */
     .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -85,6 +116,18 @@
     .state-msg p { font-size: 0.9rem; font-weight: 600; }
     .phase-badge { background: var(--bg-alt); border: 1px solid var(--navy-border); color: var(--navy); padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; margin-left: 12px; }
     .phase-badge.loading { background: rgba(255,215,0,0.18); border-color: var(--primary); color: var(--primary-ink); }
+
+    /* Relatório PDF (window.print) */
+    @media print {
+      body { background: #fff; }
+      header { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--navy) !important; }
+      thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--navy) !important; color: #fff !important; }
+      .tabs, .filters, #phase-indicator, .btn-export, thead th .sort-arrow { display: none !important; }
+      .print-only { display: block !important; font-size: 0.85rem; font-weight: 700; color: var(--navy-soft); margin: -8px 0 20px; }
+      .kpis, .top-posts-grid, .charts-section { page-break-inside: avoid; }
+      .table-wrap { border: none; overflow: visible; }
+      a[href] { text-decoration: none; color: inherit; }
+    }
   </style>
 </head>
 <body>
@@ -95,13 +138,44 @@
   </header>
 
   <div class="container">
+    <div class="print-only" id="print-report-meta"></div>
+
     <div class="kpis">
-      <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div></div>
-      <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div></div>
-      <div class="kpi"><div class="kpi-label">Comentários</div><div class="kpi-value" id="kpi-comments">—</div></div>
-      <div class="kpi"><div class="kpi-label">Visualizações Totais</div><div class="kpi-value" id="kpi-views">—</div></div>
-      <div class="kpi"><div class="kpi-label">Seguidores Ganhos</div><div class="kpi-value" id="kpi-follows">—</div></div>
-      <div class="kpi"><div class="kpi-label">Eng. Médio</div><div class="kpi-value" id="kpi-eng">—</div></div>
+      <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div><div class="kpi-compare" id="kpi-posts-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div><div class="kpi-compare" id="kpi-likes-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Comentários</div><div class="kpi-value" id="kpi-comments">—</div><div class="kpi-compare" id="kpi-comments-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Visualizações Totais</div><div class="kpi-value" id="kpi-views">—</div><div class="kpi-compare" id="kpi-views-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Seguidores Ganhos</div><div class="kpi-value" id="kpi-follows">—</div><div class="kpi-compare" id="kpi-follows-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Eng. Médio</div><div class="kpi-value" id="kpi-eng">—</div><div class="kpi-compare" id="kpi-eng-cmp"></div></div>
+    </div>
+
+    <div class="top-posts-section">
+      <div class="section-title">🏆 Top Posts do Período</div>
+      <div class="top-posts-grid">
+        <div class="top-posts-col">
+          <h3>Mais Visualizações</h3>
+          <div id="top-views-list"></div>
+        </div>
+        <div class="top-posts-col">
+          <h3>Mais Salvamentos</h3>
+          <div id="top-saved-list"></div>
+        </div>
+        <div class="top-posts-col">
+          <h3>Melhor Engajamento</h3>
+          <div id="top-eng-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-section">
+      <div class="chart-card">
+        <h3>Evolução Semanal</h3>
+        <canvas id="evolution-chart" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Performance por Formato</h3>
+        <canvas id="format-chart" height="220"></canvas>
+      </div>
     </div>
 
     <div class="tabs">
@@ -125,6 +199,7 @@
       <button class="btn-export" id="date-clear" onclick="clearDateFilter()">✕ Limpar datas</button>
       <span id="phase-indicator" class="phase-badge loading">⏳ Carregando...</span>
       <button class="btn-export" onclick="exportCSV()">⬇ CSV</button>
+      <button class="btn-export" onclick="generatePDF()">🖨 Gerar PDF</button>
     </div>
 
     <div class="table-wrap">
@@ -143,16 +218,18 @@
             <th data-col="shares" class="metric">Compartilhamentos <span class="sort-arrow">↕</span></th>
             <th data-col="follows" class="metric">Seguidores Ganhos <span class="sort-arrow">↕</span></th>
             <th data-col="eng_rate" class="metric">Engajamento <span class="sort-arrow">↕</span></th>
+            <th>Desempenho</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="table-body">
-          <tr><td colspan="13"><div class="state-msg"><div class="icon">⏳</div><p>Carregando posts...</p></div></td></tr>
+          <tr><td colspan="14"><div class="state-msg"><div class="icon">⏳</div><p>Carregando posts...</p></div></td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script>
     let allPosts = [];
     let insights = {};
@@ -207,6 +284,60 @@
       renderTable();
     }
 
+    // Posts do período imediatamente anterior, com a mesma duração do período filtrado
+    // (ex: filtro 01-10/jul -> compara com 21-30/jun). Só existe quando data-start E
+    // data-end estão preenchidos — sem os dois, "período anterior" não é bem definido.
+    function getPreviousPeriodPosts() {
+      const dateStart = document.getElementById('date-start').value;
+      const dateEnd = document.getElementById('date-end').value;
+      if (!dateStart || !dateEnd) return null;
+
+      const start = new Date(dateStart + 'T00:00:00Z');
+      const end = new Date(dateEnd + 'T00:00:00Z');
+      const spanMs = end - start;
+      const prevEnd = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+      const prevStart = new Date(prevEnd.getTime() - spanMs);
+      const prevStartStr = prevStart.toISOString().substring(0, 10);
+      const prevEndStr = prevEnd.toISOString().substring(0, 10);
+
+      const search = document.getElementById('search').value.toLowerCase();
+      const typeFilter = document.getElementById('type-filter').value;
+
+      return allPosts.filter(p => {
+        if (activeTab !== 'todos' && p.account_label !== activeTab) return false;
+        if (typeFilter && p.media_type !== typeFilter) return false;
+        if (search && !(p.caption || '').toLowerCase().includes(search) && !(p.account_label || '').toLowerCase().includes(search)) return false;
+        const postDate = p.timestamp ? p.timestamp.substring(0, 10) : '';
+        return postDate >= prevStartStr && postDate <= prevEndStr;
+      });
+    }
+
+    function computeKpiSums(posts) {
+      const totalViews = posts.reduce((s, p) => s + (insights[p.id]?.views || 0), 0);
+      const totalFollows = posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0);
+      return {
+        posts: posts.length,
+        likes: posts.reduce((s, p) => s + (p.like_count || 0), 0),
+        comments: posts.reduce((s, p) => s + (p.comments_count || 0), 0),
+        views: totalViews,
+        follows: totalFollows,
+        eng: getAvgEngRate(posts),
+      };
+    }
+
+    function renderComparison(id, current, previous) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (previous === null || previous === undefined || !previous || current === null || current === undefined) {
+        el.innerHTML = '';
+        return;
+      }
+      const pct = ((current - previous) / previous) * 100;
+      const cls = pct >= 0 ? 'positive' : 'negative';
+      const arrow = pct >= 0 ? '▲' : '▼';
+      el.innerHTML = `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}% vs período anterior</span>`;
+    }
+
     function getSortedPosts(posts) {
       return [...posts].sort((a, b) => {
         let va, vb;
@@ -223,15 +354,33 @@
       });
     }
 
+    function getAvgEngRate(posts) {
+      const rates = posts.map(p => parseFloat(getEngRate(p))).filter(r => !isNaN(r));
+      return rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : null;
+    }
+
+    function getPerfBadge(post, avgEng) {
+      const rate = parseFloat(getEngRate(post));
+      if (isNaN(rate) || !avgEng) return '';
+      const diffPct = ((rate - avgEng) / avgEng) * 100;
+      if (diffPct >= 20) return '<span class="badge badge-perf-top">🔥 Top</span>';
+      if (diffPct <= -20) return '<span class="badge badge-perf-low">📉 Baixo</span>';
+      return '';
+    }
+
     function renderTable() {
       const posts = getSortedPosts(getFilteredPosts());
       const tbody = document.getElementById('table-body');
 
       if (posts.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13"><div class="state-msg"><div class="icon">🔍</div><p>Nenhum post encontrado.</p></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14"><div class="state-msg"><div class="icon">🔍</div><p>Nenhum post encontrado.</p></div></td></tr>';
         updateKPIs([]);
+        renderTopPosts([]);
+        renderChartsDebounced([]);
         return;
       }
+
+      const avgEng = getAvgEngRate(posts);
 
       tbody.innerHTML = posts.map(p => {
         const ins = insights[p.id] || {};
@@ -254,23 +403,193 @@
           <td class="metric ${phase===1?'loading':''}">${fmt(ins.shares)}</td>
           <td class="metric ${phase===1?'loading':''}">${fmt(ins.follows)}</td>
           <td class="metric eng-rate">${engRate ? engRate+'%' : (phase===1?'…':'—')}</td>
+          <td>${phase===1 ? '' : getPerfBadge(p, avgEng)}</td>
           <td><a class="post-link" href="${p.permalink}" target="_blank">↗</a></td>
         </tr>`;
       }).join('');
 
       updateKPIs(posts);
+      renderTopPosts(posts);
+      renderChartsDebounced(posts);
     }
 
     function updateKPIs(posts) {
-      document.getElementById('kpi-posts').textContent = posts.length;
-      document.getElementById('kpi-likes').textContent = fmt(posts.reduce((s, p) => s + (p.like_count || 0), 0));
-      document.getElementById('kpi-comments').textContent = fmt(posts.reduce((s, p) => s + (p.comments_count || 0), 0));
-      const totalViews = posts.reduce((s, p) => s + (insights[p.id]?.views || 0), 0);
-      document.getElementById('kpi-views').textContent = totalViews > 0 ? fmt(totalViews) : '—';
-      const totalFollows = posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0);
-      document.getElementById('kpi-follows').textContent = totalFollows > 0 ? fmt(totalFollows) : '—';
-      const rates = posts.map(p => parseFloat(getEngRate(p))).filter(r => !isNaN(r));
-      document.getElementById('kpi-eng').textContent = rates.length > 0 ? (rates.reduce((s,r)=>s+r,0)/rates.length).toFixed(2)+'%' : '—';
+      const sums = computeKpiSums(posts);
+      document.getElementById('kpi-posts').textContent = sums.posts;
+      document.getElementById('kpi-likes').textContent = fmt(sums.likes);
+      document.getElementById('kpi-comments').textContent = fmt(sums.comments);
+      document.getElementById('kpi-views').textContent = sums.views > 0 ? fmt(sums.views) : '—';
+      document.getElementById('kpi-follows').textContent = sums.follows > 0 ? fmt(sums.follows) : '—';
+      document.getElementById('kpi-eng').textContent = sums.eng !== null ? sums.eng.toFixed(2) + '%' : '—';
+
+      const prevPosts = getPreviousPeriodPosts();
+      if (!prevPosts) {
+        ['posts', 'likes', 'comments', 'views', 'follows', 'eng'].forEach(k => renderComparison(`kpi-${k}-cmp`, null, null));
+        return;
+      }
+      const prevSums = computeKpiSums(prevPosts);
+      renderComparison('kpi-posts-cmp', sums.posts, prevSums.posts);
+      renderComparison('kpi-likes-cmp', sums.likes, prevSums.likes);
+      renderComparison('kpi-comments-cmp', sums.comments, prevSums.comments);
+      renderComparison('kpi-views-cmp', sums.views, prevSums.views);
+      renderComparison('kpi-follows-cmp', sums.follows, prevSums.follows);
+      renderComparison('kpi-eng-cmp', sums.eng, prevSums.eng);
+    }
+
+    // Top 5 posts do período filtrado por visualizações, salvamentos e engajamento
+    function renderTopPosts(posts) {
+      const byViews = posts.filter(p => insights[p.id]?.views)
+        .sort((a, b) => insights[b.id].views - insights[a.id].views).slice(0, 5);
+      const bySaved = posts.filter(p => insights[p.id]?.saved)
+        .sort((a, b) => insights[b.id].saved - insights[a.id].saved).slice(0, 5);
+      const byEng = posts.filter(p => getEngRate(p))
+        .sort((a, b) => parseFloat(getEngRate(b)) - parseFloat(getEngRate(a))).slice(0, 5);
+
+      renderTopList('top-views-list', byViews, p => `${fmt(insights[p.id].views)} visualizações`);
+      renderTopList('top-saved-list', bySaved, p => `${fmt(insights[p.id].saved)} salvamentos`);
+      renderTopList('top-eng-list', byEng, p => `${getEngRate(p)}% engajamento`);
+    }
+
+    function renderTopList(elId, posts, metricFn) {
+      const el = document.getElementById(elId);
+      if (posts.length === 0) {
+        el.innerHTML = '<p class="top-empty">Sem dados suficientes ainda.</p>';
+        return;
+      }
+      el.innerHTML = posts.map((p, i) => {
+        const thumb = p.thumbnail_url || p.media_url;
+        return `<a class="top-post-card" href="${p.permalink}" target="_blank">
+          <span class="top-post-rank">#${i + 1}</span>
+          ${thumb ? `<img src="${thumb}" onerror="this.style.display='none'"/>` : '<div class="top-post-noimg">📷</div>'}
+          <div class="top-post-info">
+            <div class="top-post-caption">${(p.caption || 'Sem legenda').replace(/"/g, '&quot;').substring(0, 60)}</div>
+            <div class="top-post-metric">${metricFn(p)}</div>
+          </div>
+        </a>`;
+      }).join('');
+    }
+
+    function debounce(fn, delay) {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    // Início da semana (segunda-feira), em UTC, pra agrupar posts por semana
+    function getWeekStart(d) {
+      const date = new Date(d);
+      const day = date.getUTCDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      date.setUTCDate(date.getUTCDate() + diff);
+      date.setUTCHours(0, 0, 0, 0);
+      return date;
+    }
+
+    function fmtWeekLabel(isoDate) {
+      const d = new Date(isoDate + 'T00:00:00Z');
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+    }
+
+    let evolutionChart = null;
+    function renderEvolutionChart(posts) {
+      const canvas = document.getElementById('evolution-chart');
+      if (!window.Chart || !canvas) return;
+
+      const weekMap = {};
+      posts.forEach(p => {
+        if (!p.timestamp) return;
+        const key = getWeekStart(p.timestamp).toISOString().substring(0, 10);
+        if (!weekMap[key]) weekMap[key] = { views: 0, likes: 0 };
+        weekMap[key].views += insights[p.id]?.views || 0;
+        weekMap[key].likes += p.like_count || 0;
+      });
+
+      const weeks = Object.keys(weekMap).sort();
+      if (evolutionChart) { evolutionChart.destroy(); evolutionChart = null; }
+      if (weeks.length === 0) return;
+
+      evolutionChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: weeks.map(fmtWeekLabel),
+          datasets: [
+            { label: 'Visualizações', data: weeks.map(w => weekMap[w].views), borderColor: '#8a6d00', backgroundColor: 'rgba(255,215,0,0.15)', tension: 0.3, fill: true },
+            { label: 'Curtidas', data: weeks.map(w => weekMap[w].likes), borderColor: '#0A1628', backgroundColor: 'rgba(10,22,40,0.08)', tension: 0.3, fill: true },
+          ],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          scales: { y: { beginAtZero: true } },
+        },
+      });
+    }
+
+    let formatChart = null;
+    function renderFormatChart(posts) {
+      const canvas = document.getElementById('format-chart');
+      if (!window.Chart || !canvas) return;
+
+      const buckets = {};
+      posts.forEach(p => {
+        const type = p.media_type || 'OUTRO';
+        if (!buckets[type]) buckets[type] = { views: 0, count: 0, engSum: 0, engCount: 0 };
+        buckets[type].views += insights[p.id]?.views || 0;
+        buckets[type].count += 1;
+        const rate = parseFloat(getEngRate(p));
+        if (!isNaN(rate)) { buckets[type].engSum += rate; buckets[type].engCount += 1; }
+      });
+
+      const types = Object.keys(buckets);
+      if (formatChart) { formatChart.destroy(); formatChart = null; }
+      if (types.length === 0) return;
+
+      formatChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: types.map(t => TYPE_LABELS[t] || t),
+          datasets: [
+            {
+              label: 'Visualizações médias',
+              data: types.map(t => buckets[t].count ? Math.round(buckets[t].views / buckets[t].count) : 0),
+              backgroundColor: '#FFD700',
+              yAxisID: 'y',
+            },
+            {
+              label: 'Engajamento médio (%)',
+              data: types.map(t => buckets[t].engCount ? +(buckets[t].engSum / buckets[t].engCount).toFixed(2) : 0),
+              backgroundColor: '#0A1628',
+              yAxisID: 'y1',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+            y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Visualizações médias' } },
+            y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Engajamento médio (%)' } },
+          },
+        },
+      });
+    }
+
+    const renderChartsDebounced = debounce((posts) => {
+      renderEvolutionChart(posts);
+      renderFormatChart(posts);
+    }, 400);
+
+    function generatePDF() {
+      const dateStart = document.getElementById('date-start').value;
+      const dateEnd = document.getElementById('date-end').value;
+      const rangeText = (dateStart || dateEnd)
+        ? `Período: ${dateStart || '...'} a ${dateEnd || '...'}`
+        : 'Período: todo o histórico disponível';
+      document.getElementById('print-report-meta').textContent =
+        `${rangeText} — Relatório gerado em ${new Date().toLocaleString('pt-BR')}`;
+      window.print();
     }
 
     // Fase 1: carrega posts básicos
@@ -286,7 +605,7 @@
         renderTable();
         loadInsights();
       } catch (err) {
-        document.getElementById('table-body').innerHTML = `<tr><td colspan="13"><div class="state-msg"><div class="icon">❌</div><p>${err.message}</p></div></td></tr>`;
+        document.getElementById('table-body').innerHTML = `<tr><td colspan="14"><div class="state-msg"><div class="icon">❌</div><p>${err.message}</p></div></td></tr>`;
         document.getElementById('phase-indicator').textContent = '❌ Erro ao carregar';
       }
     }

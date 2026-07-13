@@ -86,8 +86,8 @@ function postToRow(post, comparisonPct) {
     post.media_type || '',
     (post.caption || '').substring(0, 300),
     reach,
-    insights.impressions || '',
-    insights.plays || insights.video_views || '',
+    '', // Impressões — métrica descontinuada pela Graph API, mantido por compatibilidade de coluna
+    insights.views || '',
     post.like_count || 0,
     post.comments_count || 0,
     insights.shares || '',
