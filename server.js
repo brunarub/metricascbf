@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, refreshAccessToken } = require('./src/instagram');
+const { getCalendario } = require('./src/calendario');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -156,12 +157,48 @@ app.post('/api/refresh-token', async (req, res) => {
   }
 });
 
+// Cache do calendário de jogos — 15 minutos (mesmo padrão dos outros caches)
+const calendarioCache = { games: null, ts: 0 };
+
+// GET /api/calendario — jogos do Brasileirão Feminino A1 e Copa do Brasil Feminino,
+// vindos da API interna (não oficial) do cbf.com.br.
+app.get('/api/calendario', async (req, res) => {
+  try {
+    if (calendarioCache.games && (Date.now() - calendarioCache.ts) < CACHE_TTL) {
+      return res.json(calendarioCache.games);
+    }
+
+    const games = await getCalendario();
+    calendarioCache.games = games;
+    calendarioCache.ts = Date.now();
+    res.json(games);
+  } catch (err) {
+    console.error('Erro /api/calendario:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Rota raiz → dashboard
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Rota → página de calendário
+app.get('/calendario', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'calendario.html'));
+});
+
 app.listen(PORT, () => {
   console.log(`\n🚀 insta-dash rodando em http://localhost:${PORT}`);
   console.log(`   Contas configuradas: ${getAccounts().map(a => a.label).join(', ') || 'nenhuma'}`);
+
+  // Pré-aquece o cache do calendário em background — a primeira busca varre
+  // ~68 dias na API do CBF e pode levar bem mais de um minuto.
+  getCalendario()
+    .then(games => {
+      calendarioCache.games = games;
+      calendarioCache.ts = Date.now();
+      console.log(`📅 Calendário pré-carregado: ${games.length} jogos`);
+    })
+    .catch(err => console.error('Erro ao pré-carregar calendário:', err.message));
 });

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>insta-dash — Calendário de Jogos</title>
+  <style>
+    :root {
+      --primary: #FFD700;
+      --primary-ink: #8a6d00;
+      --navy: #0A1628;
+      --navy-soft: rgba(10,22,40,0.65);
+      --navy-border: rgba(10,22,40,0.14);
+      --bg: #FFFFFF;
+      --bg-alt: #F8F9FA;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--navy); min-height: 100vh; }
+
+    header { background: var(--navy); padding: 20px 24px; display: flex; align-items: center; gap: 12px; border-bottom: 4px solid var(--primary); flex-wrap: wrap; }
+    header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; color: #fff; }
+    header h1 .brand-accent { color: var(--primary); }
+    nav.main-nav { display: flex; gap: 4px; margin-left: 24px; }
+    nav.main-nav a { color: rgba(255,255,255,0.7); text-decoration: none; font-weight: 700; font-size: 0.85rem; padding: 8px 14px; border-radius: 8px; text-transform: uppercase; letter-spacing: .03em; transition: all .15s; }
+    nav.main-nav a:hover { color: #fff; background: rgba(255,255,255,0.08); }
+    nav.main-nav a.active { color: var(--navy); background: var(--primary); }
+    header span.last-update { font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.75); margin-left: auto; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    .filters { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+    .filters select { background: var(--bg); border: 1.5px solid var(--navy-border); color: var(--navy); padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; }
+    .filters select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,215,0,0.25); }
+    .view-toggle { display: flex; border: 1.5px solid var(--navy); border-radius: 8px; overflow: hidden; }
+    .view-toggle button { background: var(--bg); border: none; color: var(--navy); font-weight: 700; font-size: 0.82rem; padding: 8px 16px; cursor: pointer; }
+    .view-toggle button.active { background: var(--navy); color: #fff; }
+    .phase-badge { background: var(--bg-alt); border: 1px solid var(--navy-border); color: var(--navy); padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; margin-left: auto; }
+    .phase-badge.loading { background: rgba(255,215,0,0.18); border-color: var(--primary); color: var(--primary-ink); }
+
+    /* Lista cronológica */
+    .day-group { margin-bottom: 22px; }
+    .day-header { font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); padding-bottom: 6px; border-bottom: 2px solid var(--navy-border); margin-bottom: 10px; }
+    .game-card { display: flex; align-items: center; gap: 14px; background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; flex-wrap: wrap; }
+    .game-comp { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--primary-ink); background: rgba(255,215,0,0.15); padding: 3px 8px; border-radius: 8px; white-space: nowrap; }
+    .game-teams { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 260px; }
+    .team { display: flex; align-items: center; gap: 8px; flex: 1; font-weight: 700; font-size: 0.9rem; }
+    .team img, .team .no-shield { width: 28px; height: 28px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+    .team.away { flex-direction: row-reverse; text-align: right; }
+    .score { font-size: 1.1rem; font-weight: 800; color: var(--navy); white-space: nowrap; min-width: 64px; text-align: center; }
+    .score.vs { color: var(--navy-soft); font-size: 0.85rem; font-weight: 700; }
+    .game-meta { font-size: 0.76rem; color: var(--navy-soft); font-weight: 600; white-space: nowrap; }
+    .status-badge { font-size: 0.68rem; font-weight: 800; padding: 3px 9px; border-radius: 10px; text-transform: uppercase; white-space: nowrap; }
+    .status-ao_vivo { background: #FDECEC; color: #c62828; }
+    .status-encerrado { background: #EDEFF2; color: #5a6472; }
+    .status-agendado { background: #E6F4EA; color: #1e7e34; }
+
+    /* Visão mensal */
+    .month-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .month-nav button { background: var(--bg); border: 1.5px solid var(--navy); color: var(--navy); font-weight: 700; padding: 6px 14px; border-radius: 8px; cursor: pointer; }
+    .month-nav button:hover { background: var(--primary); border-color: var(--primary); }
+    .month-title { font-size: 1rem; font-weight: 800; text-transform: uppercase; color: var(--navy); }
+    .month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .month-grid .weekday { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--navy-soft); text-align: center; padding-bottom: 4px; }
+    .month-cell { min-height: 90px; border: 1px solid var(--navy-border); border-radius: 8px; padding: 6px; background: var(--bg); }
+    .month-cell.empty { background: transparent; border: none; }
+    .month-cell .cell-date { font-size: 0.75rem; font-weight: 800; color: var(--navy); margin-bottom: 4px; }
+    .month-cell.today { border-color: var(--primary); border-width: 2px; }
+    .mini-game { font-size: 0.66rem; font-weight: 700; color: var(--navy); background: var(--bg-alt); border-radius: 5px; padding: 2px 4px; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-more { font-size: 0.64rem; color: var(--navy-soft); font-weight: 700; }
+
+    .state-msg { text-align: center; padding: 60px; color: var(--navy-soft); }
+    .state-msg .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .state-msg p { font-size: 0.9rem; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>📊</div>
+    <h1><span class="brand-accent">Brasileiras</span> · insta-dash</h1>
+    <nav class="main-nav">
+      <a href="/">Dashboard</a>
+      <a href="/calendario" class="active">Calendário</a>
+    </nav>
+    <span class="last-update" id="last-update">Carregando...</span>
+  </header>
+
+  <div class="container">
+    <div class="filters">
+      <select id="comp-filter">
+        <option value="">Todas as competições</option>
+        <option value="Brasileirão Feminino A1">Brasileirão Feminino A1</option>
+        <option value="Copa do Brasil Feminino">Copa do Brasil Feminino</option>
+      </select>
+      <div class="view-toggle">
+        <button id="btn-view-lista" class="active">Lista</button>
+        <button id="btn-view-mes">Mês</button>
+      </div>
+      <span id="status-indicator" class="phase-badge loading">⏳ Carregando jogos...</span>
+    </div>
+
+    <div id="lista-view">
+      <div id="lista-content">
+        <div class="state-msg"><div class="icon">⏳</div><p>Carregando calendário...</p></div>
+      </div>
+    </div>
+
+    <div id="mes-view" style="display:none">
+      <div class="month-nav">
+        <button id="mes-prev">‹ Anterior</button>
+        <span class="month-title" id="month-title"></span>
+        <button id="mes-next">Próximo ›</button>
+      </div>
+      <div class="month-grid" id="month-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    let allGames = [];
+    let currentView = 'lista';
+    let monthCursor = new Date(); // mês exibido na visão mensal
+
+    const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const SEMANA = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
+    const STATUS_LABEL = { ao_vivo: '🔴 Ao vivo', encerrado: 'Encerrado', agendado: 'Agendado' };
+
+    function fmtDateHeader(dataStr) {
+      // dataStr = "DD/MM/YYYY"
+      const [d, m, y] = dataStr.split('/');
+      const date = new Date(`${y}-${m}-${d}T12:00:00`);
+      const weekday = date.toLocaleDateString('pt-BR', { weekday: 'long' });
+      return `${weekday}, ${d}/${m}/${y}`;
+    }
+
+    function getFilteredGames() {
+      const comp = document.getElementById('comp-filter').value;
+      return allGames.filter(g => !comp || g.competicao === comp);
+    }
+
+    function renderTeam(team, side) {
+      const shield = team.escudo
+        ? `<img src="${team.escudo}" onerror="this.style.display='none'"/>`
+        : '<div class="no-shield"></div>';
+      return `<div class="team ${side}">${shield}<span>${team.nome}</span></div>`;
+    }
+
+    function renderScore(g) {
+      if (g.status === 'agendado') return `<div class="score vs">${g.hora || '--:--'}</div>`;
+      return `<div class="score">${g.mandante.gols} <span style="opacity:.4">×</span> ${g.visitante.gols}</div>`;
+    }
+
+    function renderGameCard(g) {
+      return `<div class="game-card">
+        <span class="game-comp">${g.competicao}</span>
+        <div class="game-teams">
+          ${renderTeam(g.mandante, 'home')}
+          ${renderScore(g)}
+          ${renderTeam(g.visitante, 'away')}
+        </div>
+        <span class="status-badge status-${g.status}">${STATUS_LABEL[g.status] || g.status}</span>
+        <span class="game-meta">${g.hora || ''} ${g.local ? '· ' + g.local : ''}</span>
+      </div>`;
+    }
+
+    function renderLista() {
+      const games = getFilteredGames();
+      const el = document.getElementById('lista-content');
+
+      if (games.length === 0) {
+        el.innerHTML = '<div class="state-msg"><div class="icon">🔍</div><p>Nenhum jogo encontrado.</p></div>';
+        return;
+      }
+
+      const byDate = {};
+      games.forEach(g => {
+        if (!byDate[g.data]) byDate[g.data] = [];
+        byDate[g.data].push(g);
+      });
+
+      el.innerHTML = Object.keys(byDate).map(data => `
+        <div class="day-group">
+          <div class="day-header">${fmtDateHeader(data)}</div>
+          ${byDate[data].map(renderGameCard).join('')}
+        </div>
+      `).join('');
+    }
+
+    function renderMonth() {
+      const year = monthCursor.getFullYear();
+      const month = monthCursor.getMonth();
+      document.getElementById('month-title').textContent = `${MESES[month]} ${year}`;
+
+      const games = getFilteredGames();
+      const byDay = {};
+      games.forEach(g => {
+        const [d, m, y] = g.data.split('/').map(Number);
+        if (y === year && (m - 1) === month) {
+          byDay[d] = byDay[d] || [];
+          byDay[d].push(g);
+        }
+      });
+
+      const firstDay = new Date(year, month, 1);
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const startWeekday = firstDay.getDay();
+      const today = new Date();
+
+      const grid = document.getElementById('month-grid');
+      let html = SEMANA.map(d => `<div class="weekday">${d}</div>`).join('');
+
+      for (let i = 0; i < startWeekday; i++) html += '<div class="month-cell empty"></div>';
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
+        const dayGames = byDay[day] || [];
+        const shown = dayGames.slice(0, 3);
+        const extra = dayGames.length - shown.length;
+        html += `<div class="month-cell ${isToday ? 'today' : ''}">
+          <div class="cell-date">${day}</div>
+          ${shown.map(g => `<div class="mini-game" title="${g.mandante.nome} x ${g.visitante.nome}">${g.mandante.nome.slice(0,3).toUpperCase()} x ${g.visitante.nome.slice(0,3).toUpperCase()} ${g.hora||''}</div>`).join('')}
+          ${extra > 0 ? `<div class="mini-more">+${extra} jogo${extra>1?'s':''}</div>` : ''}
+        </div>`;
+      }
+
+      grid.innerHTML = html;
+    }
+
+    function renderAll() {
+      if (currentView === 'lista') renderLista();
+      else renderMonth();
+    }
+
+    document.getElementById('comp-filter').addEventListener('change', renderAll);
+
+    document.getElementById('btn-view-lista').addEventListener('click', () => {
+      currentView = 'lista';
+      document.getElementById('btn-view-lista').classList.add('active');
+      document.getElementById('btn-view-mes').classList.remove('active');
+      document.getElementById('lista-view').style.display = '';
+      document.getElementById('mes-view').style.display = 'none';
+      renderAll();
+    });
+
+    document.getElementById('btn-view-mes').addEventListener('click', () => {
+      currentView = 'mes';
+      document.getElementById('btn-view-mes').classList.add('active');
+      document.getElementById('btn-view-lista').classList.remove('active');
+      document.getElementById('mes-view').style.display = '';
+      document.getElementById('lista-view').style.display = 'none';
+      renderAll();
+    });
+
+    document.getElementById('mes-prev').addEventListener('click', () => {
+      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1);
+      renderMonth();
+    });
+    document.getElementById('mes-next').addEventListener('click', () => {
+      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1);
+      renderMonth();
+    });
+
+    async function loadCalendario() {
+      try {
+        const res = await fetch('/api/calendario');
+        if (!res.ok) throw new Error(await res.text());
+        allGames = await res.json();
+        document.getElementById('status-indicator').textContent = `✅ ${allGames.length} jogos carregados`;
+        document.getElementById('status-indicator').className = 'phase-badge';
+        document.getElementById('last-update').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+        renderAll();
+      } catch (err) {
+        document.getElementById('lista-content').innerHTML = `<div class="state-msg"><div class="icon">❌</div><p>${err.message}</p></div>`;
+        document.getElementById('status-indicator').textContent = '❌ Erro ao carregar';
+      }
+    }
+
+    loadCalendario();
+  </script>
+</body>
+</html>
