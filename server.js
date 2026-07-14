@@ -188,6 +188,11 @@ app.get('/calendario', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'calendario.html'));
 });
 
+// Rota → página com o site de influenciadoras embutido em iframe
+app.get('/influenciadoras', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'influenciadoras.html'));
+});
+
 app.listen(PORT, () => {
   console.log(`\n🚀 insta-dash rodando em http://localhost:${PORT}`);
   console.log(`   Contas configuradas: ${getAccounts().map(a => a.label).join(', ') || 'nenhuma'}`);

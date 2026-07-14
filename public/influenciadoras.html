@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>insta-dash — Influenciadoras</title>
+  <style>
+    :root {
+      --primary: #00B4D8;
+      --primary-ink: #007693;
+      --navy: #0A2342;
+      --navy-soft: rgba(10,35,66,0.65);
+      --navy-border: rgba(10,35,66,0.14);
+      --bg: #FFFFFF;
+      --bg-alt: #F8F9FA;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--navy); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    header { background: var(--navy); padding: 20px 24px; display: flex; align-items: center; gap: 12px; border-bottom: 4px solid var(--primary); flex-shrink: 0; }
+    header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; color: #fff; }
+    header h1 .brand-accent { color: var(--primary); }
+    nav.main-nav { display: flex; gap: 4px; margin-left: 24px; }
+    nav.main-nav a { color: rgba(255,255,255,0.7); text-decoration: none; font-weight: 700; font-size: 0.85rem; padding: 8px 14px; border-radius: 8px; text-transform: uppercase; letter-spacing: .03em; transition: all .15s; }
+    nav.main-nav a:hover { color: #fff; background: rgba(255,255,255,0.08); }
+    nav.main-nav a.active { color: var(--navy); background: var(--primary); }
+
+    .iframe-wrap { flex: 1; min-height: 0; }
+    .iframe-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>📊</div>
+    <h1><span class="brand-accent">Brasileiras</span> · insta-dash</h1>
+    <nav class="main-nav">
+      <a href="/">Dashboard</a>
+      <a href="/calendario">Calendário</a>
+      <a href="/influenciadoras" class="active">Influenciadoras</a>
+    </nav>
+  </header>
+
+  <div class="iframe-wrap">
+    <iframe src="https://thais-fm.github.io/Influenciadores-Brasileiras/" title="Influenciadoras Brasileiras" loading="lazy"></iframe>
+  </div>
+</body>
+</html>
