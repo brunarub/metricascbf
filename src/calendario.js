@@ -5,8 +5,15 @@
 // (que é "0" tanto pra jogos futuros quanto já jogados; por isso calculamos
 // o status nós mesmos comparando a data/hora do jogo com o horário atual).
 const axios = require('axios');
+const https = require('https');
 
 const BASE_URL = 'https://www.cbf.com.br/api/cbf/calendario/jogos';
+
+// O host da CBF não envia a cadeia de certificados completa, o que faz o Node
+// rejeitar com "unable to verify the first certificate" em alguns ambientes
+// (ex: Render). Como é um endpoint público e só de leitura (sem credenciais
+// envolvidas), desligamos a verificação apenas para essas chamadas.
+const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 // Cada entrada casa um par (nome do campeonato, nome da subcategoria) retornado
 // pela API com o rótulo que queremos mostrar no dashboard.
@@ -17,7 +24,7 @@ const COMPETITIONS = [
 
 async function fetchDia(ano, mes, dia) {
   const url = `${BASE_URL}/${ano}/${String(mes).padStart(2, '0')}/${String(dia).padStart(2, '0')}`;
-  const res = await axios.get(url);
+  const res = await axios.get(url, { httpsAgent: insecureAgent });
   return res.data.jogos || {};
 }
 
