@@ -276,5 +276,111 @@
 
     loadCalendario();
   </script>
+
+<!-- ── Painel de Escala da Semana ── -->
+<style>
+  #painel-escala {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 24px auto;
+    max-width: 900px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border: 1px solid #e0e0e0;
+  }
+  #painel-escala h2 { color: #003478; font-size: 18px; margin: 0 0 16px; }
+  .escala-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .escala-dia { border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; font-size: 13px; background: #fafafa; }
+  .escala-dia.alerta { border-color: #dc3545; background: #fff5f5; }
+  .escala-dia .data-label { font-weight: bold; color: #003478; margin-bottom: 4px; font-size: 12px; }
+  .escala-dia .sociais-list { color: #333; font-size: 12px; margin-bottom: 4px; }
+  .alerta-badge { display: inline-block; background: #dc3545; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 4px; }
+  .sem-dados { color: #bbb; font-size: 11px; font-style: italic; }
+  #escala-loading { color: #888; font-size: 14px; padding: 20px 0; text-align: center; }
+</style>
+
+<div id="painel-escala">
+  <h2>👥 Escala da semana</h2>
+  <div id="escala-loading">Carregando escala...</div>
+  <div class="escala-grid" id="escala-grid" style="display:none"></div>
+</div>
+
+<script>
+(async function() {
+  const grid = document.getElementById('escala-grid');
+  const loading = document.getElementById('escala-loading');
+  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+  try {
+    const res = await fetch('/api/escala');
+    if (!res.ok) throw new Error('Erro ao buscar escala');
+    const { diasPorData } = await res.json();
+
+    loading.style.display = 'none';
+    grid.style.display = 'grid';
+
+    if (!diasPorData || Object.keys(diasPorData).length === 0) {
+      grid.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado encontrado. Verifique o nome da aba na planilha.</p>';
+      return;
+    }
+
+    const chaves = Object.keys(diasPorData);
+    const hoje = new Date();
+
+    for (let i = 0; i < 10; i++) {
+      const d = new Date(hoje);
+      d.setDate(hoje.getDate() + i);
+      const ddmm = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+      const chave = chaves.find(k => k.startsWith(ddmm));
+      const info = chave ? diasPorData[chave] : null;
+
+      const card = document.createElement('div');
+      card.className = 'escala-dia';
+      card.innerHTML = `<div class="data-label">${DIAS[d.getDay()]} ${ddmm}</div>` + (
+        !info || (info.sociais.length === 0 && info.todos.length === 0)
+          ? `<div class="sem-dados">Sem dados</div>`
+          : `<div class="sociais-list">${info.sociais.length > 0 ? '👤 ' + info.sociais.join('<br>👤 ') : '<span style="color:#bbb;font-size:11px;">Sem social</span>'}</div>`
+      );
+      grid.appendChild(card);
+    }
+
+    // Cruza com calendário para alertas
+    try {
+      const calRes = await fetch('/api/calendario');
+      if (calRes.ok) {
+        const jogos = await calRes.json();
+        const jogosAgrupados = {};
+        for (const j of jogos) {
+          const data = j.data || j.date || '';
+          if (!jogosAgrupados[data]) jogosAgrupados[data] = [];
+          jogosAgrupados[data].push(j);
+        }
+        document.querySelectorAll('.escala-dia').forEach(card => {
+          const label = card.querySelector('.data-label')?.textContent || '';
+          const ddmmMatch = label.match(/(\d{2}\/\d{2})/);
+          if (!ddmmMatch) return;
+          const ddmm = ddmmMatch[1];
+          const chave = chaves.find(k => k.startsWith(ddmm));
+          const info = chave ? diasPorData[chave] : null;
+          const jogosChave = Object.keys(jogosAgrupados).find(k => k.includes(ddmm));
+          const qtdJogos = jogosChave ? jogosAgrupados[jogosChave].length : 0;
+          if (qtdJogos >= 3 && info && info.sociais.length <= 1) {
+            card.classList.add('alerta');
+            const badge = document.createElement('span');
+            badge.className = 'alerta-badge';
+            badge.textContent = `⚠️ ${qtdJogos} jogos · ${info.sociais.length === 0 ? '0' : '1'} social`;
+            card.appendChild(badge);
+          }
+        });
+      }
+    } catch(e) {}
+
+  } catch (err) {
+    loading.textContent = 'Não foi possível carregar a escala.';
+    console.error(err);
+  }
+})();
+</script>
+
 </body>
 </html>

@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, refreshAccessToken } = require('./src/instagram');
 const { getCalendario } = require('./src/calendario');
+const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga } = require('./src/escala');
+const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -193,6 +195,76 @@ app.get('/influenciadoras', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'influenciadoras.html'));
 });
 
+// ── Escala ──────────────────────────────────────────────────────────
+let escalaCache = null;
+let escalaCacheTime = 0;
+const ESCALA_CACHE_TTL = 60 * 60 * 1000;
+
+app.get('/api/escala', async (req, res) => {
+  try {
+    const agora = Date.now();
+    if (escalaCache && (agora - escalaCacheTime) < ESCALA_CACHE_TTL) {
+      return res.json(escalaCache);
+    }
+    const dados = await getEscalaSemana();
+    escalaCache = dados;
+    escalaCacheTime = agora;
+    res.json(dados);
+  } catch (err) {
+    console.error('Erro /api/escala:', err.message);
+    res.status(500).json({ erro: err.message });
+  }
+});
+
+// Alerta de sobrecarga (boot + a cada 24h)
+const alertasEnviados = new Set();
+async function verificarSobrecarga() {
+  try {
+    const dadosEscala = await getEscalaSemana();
+    const jogos = await getCalendario().catch(() => []);
+    // Agrupa jogos por data DD/MM
+    const jogosAgrupados = {};
+    for (const j of jogos) {
+      const chave = j.data || j.date || '';
+      if (!jogosAgrupados[chave]) jogosAgrupados[chave] = [];
+      jogosAgrupados[chave].push(j);
+    }
+    const alertas = detectarSobrecarga(dadosEscala.diasPorData, jogosAgrupados);
+    const novos = alertas.filter(a => !alertasEnviados.has(a.data));
+    if (novos.length > 0) {
+      await enviarAlertaSobrecarga(novos);
+      novos.forEach(a => alertasEnviados.add(a.data));
+    }
+  } catch (err) {
+    console.error('Erro verificarSobrecarga:', err.message);
+  }
+}
+
+// Email semanal toda sexta 9h Brasília (12h UTC)
+function agendarEmailSexta() {
+  const agora = new Date();
+  const proximaSexta = new Date(agora);
+  proximaSexta.setUTCHours(12, 0, 0, 0);
+  const diaSemana = proximaSexta.getUTCDay();
+  const diasAte = (5 - diaSemana + 7) % 7 || 7;
+  if (diaSemana === 5 && agora.getUTCHours() >= 12) {
+    proximaSexta.setUTCDate(proximaSexta.getUTCDate() + 7);
+  } else {
+    proximaSexta.setUTCDate(proximaSexta.getUTCDate() + diasAte);
+  }
+  const ms = proximaSexta - agora;
+  console.log(`📅 Próximo resumo semanal: ${proximaSexta.toISOString()}`);
+  setTimeout(async () => {
+    try {
+      const { escalaFiltrada } = await getEscalaProxDias(9);
+      await enviarResumoSemanal(escalaFiltrada);
+    } catch (err) {
+      console.error('Erro email semanal:', err.message);
+    }
+    agendarEmailSexta();
+  }, ms);
+}
+
 app.listen(PORT, () => {
   console.log(`\n🚀 insta-dash rodando em http://localhost:${PORT}`);
   console.log(`   Contas configuradas: ${getAccounts().map(a => a.label).join(', ') || 'nenhuma'}`);
@@ -206,4 +278,9 @@ app.listen(PORT, () => {
       console.log(`📅 Calendário pré-carregado: ${games.length} jogos`);
     })
     .catch(err => console.error('Erro ao pré-carregar calendário:', err.message));
+
+  // Escala + emails
+  setTimeout(verificarSobrecarga, 5000);
+  setInterval(verificarSobrecarga, 24 * 60 * 60 * 1000);
+  agendarEmailSexta();
 });
