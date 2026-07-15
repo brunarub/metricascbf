@@ -284,17 +284,25 @@
     border-radius: 8px;
     padding: 20px 24px;
     margin: 24px auto;
-    max-width: 900px;
+    max-width: 1000px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     border: 1px solid #e0e0e0;
   }
   #painel-escala h2 { color: #003478; font-size: 18px; margin: 0 0 16px; }
-  .escala-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
-  .escala-dia { border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; font-size: 13px; background: #fafafa; }
+  .escala-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .escala-dia { border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; font-size: 12px; background: #fafafa; }
   .escala-dia.alerta { border-color: #dc3545; background: #fff5f5; }
-  .escala-dia .data-label { font-weight: bold; color: #003478; margin-bottom: 4px; font-size: 12px; }
-  .escala-dia .sociais-list { color: #333; font-size: 12px; margin-bottom: 4px; }
-  .alerta-badge { display: inline-block; background: #dc3545; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 4px; }
+  .escala-dia .data-label { font-weight: bold; color: #003478; margin-bottom: 8px; font-size: 12px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+  .escala-pessoa { display: flex; align-items: flex-start; gap: 4px; margin-bottom: 4px; line-height: 1.3; }
+  .escala-pessoa .nome { color: #333; flex: 1; }
+  .escala-pessoa .status-badge {
+    font-size: 10px; padding: 1px 5px; border-radius: 8px; white-space: nowrap; flex-shrink: 0;
+  }
+  .status-trabalho { background: #e8f5e9; color: #2e7d32; }
+  .status-horario { background: #e3f2fd; color: #1565c0; }
+  .status-jogo { background: #fff3e0; color: #e65100; font-weight: bold; }
+  .status-folga { color: #bbb; }
+  .alerta-badge { display: inline-block; background: #dc3545; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 6px; width: 100%; text-align: center; }
   .sem-dados { color: #bbb; font-size: 11px; font-style: italic; }
   #escala-loading { color: #888; font-size: 14px; padding: 20px 0; text-align: center; }
 </style>
@@ -310,6 +318,35 @@
   const grid = document.getElementById('escala-grid');
   const loading = document.getElementById('escala-loading');
   const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+  // Competições conhecidas que indicam cobertura de jogo
+  const JOGOS_KEYWORDS = ['brasileirão','brasileirao','copa','libertadores','sulamericana','in loco'];
+
+  function classificarStatus(status) {
+    if (!status || status === '') return 'ausente';
+    const s = status.toLowerCase();
+    if (s === 'folga' || s === 'férias') return 'folga';
+    if (JOGOS_KEYWORDS.some(k => s.includes(k))) return 'jogo';
+    if (/\d+h/.test(s)) return 'horario';
+    return 'trabalho';
+  }
+
+  function renderPessoa(nome, status) {
+    const tipo = classificarStatus(status);
+    if (tipo === 'ausente') return '';
+
+    let badgeHtml = '';
+    if (tipo === 'folga') {
+      return `<div class="escala-pessoa"><span class="nome status-folga">${nome}</span></div>`;
+    } else if (tipo === 'jogo') {
+      badgeHtml = `<span class="status-badge status-jogo">⚽ ${status}</span>`;
+    } else if (tipo === 'horario') {
+      badgeHtml = `<span class="status-badge status-horario">${status}</span>`;
+    } else {
+      badgeHtml = `<span class="status-badge status-trabalho">✓</span>`;
+    }
+    return `<div class="escala-pessoa"><span class="nome">${nome}</span>${badgeHtml}</div>`;
+  }
 
   try {
     const res = await fetch('/api/escala');
@@ -336,39 +373,62 @@
 
       const card = document.createElement('div');
       card.className = 'escala-dia';
-      card.innerHTML = `<div class="data-label">${DIAS[d.getDay()]} ${ddmm}</div>` + (
-        !info || (info.sociais.length === 0 && info.todos.length === 0)
-          ? `<div class="sem-dados">Sem dados</div>`
-          : `<div class="sociais-list">${info.sociais.length > 0 ? '👤 ' + info.sociais.join('<br>👤 ') : '<span style="color:#bbb;font-size:11px;">Sem social</span>'}</div>`
-      );
+      card.dataset.ddmm = ddmm;
+
+      let pessoasHtml = '';
+      if (info && info.todos && info.todos.length > 0) {
+        // Ordena: jogos primeiro, depois horários, depois trabalho normal, folgas no fim
+        const ordem = { jogo: 0, horario: 1, trabalho: 2, folga: 3, ausente: 4 };
+        const sorted = [...info.todos].sort((a, b) =>
+          (ordem[classificarStatus(a.status)] || 4) - (ordem[classificarStatus(b.status)] || 4)
+        );
+        pessoasHtml = sorted.map(p => renderPessoa(p.nome, p.status)).join('');
+      } else {
+        pessoasHtml = '<div class="sem-dados">Sem dados</div>';
+      }
+
+      card.innerHTML = `<div class="data-label">${DIAS[d.getDay()]} ${ddmm}</div>${pessoasHtml}`;
       grid.appendChild(card);
     }
 
-    // Cruza com calendário para alertas
+    // Cruza com calendário: mostra jogos do dia e alerta sobrecarga
     try {
       const calRes = await fetch('/api/calendario');
       if (calRes.ok) {
         const jogos = await calRes.json();
         const jogosAgrupados = {};
         for (const j of jogos) {
-          const data = j.data || j.date || '';
-          if (!jogosAgrupados[data]) jogosAgrupados[data] = [];
-          jogosAgrupados[data].push(j);
+          // Normaliza data para DD/MM
+          const raw = j.data || j.date || j.dataFormatada || '';
+          const m = raw.match(/(\d{1,2})[\/\-](\d{1,2})/);
+          if (!m) continue;
+          const chave = `${m[1].padStart(2,'0')}/${m[2].padStart(2,'0')}`;
+          if (!jogosAgrupados[chave]) jogosAgrupados[chave] = [];
+          jogosAgrupados[chave].push(j);
         }
+
         document.querySelectorAll('.escala-dia').forEach(card => {
-          const label = card.querySelector('.data-label')?.textContent || '';
-          const ddmmMatch = label.match(/(\d{2}\/\d{2})/);
-          if (!ddmmMatch) return;
-          const ddmm = ddmmMatch[1];
+          const ddmm = card.dataset.ddmm;
           const chave = chaves.find(k => k.startsWith(ddmm));
           const info = chave ? diasPorData[chave] : null;
-          const jogosChave = Object.keys(jogosAgrupados).find(k => k.includes(ddmm));
-          const qtdJogos = jogosChave ? jogosAgrupados[jogosChave].length : 0;
-          if (qtdJogos >= 3 && info && info.sociais.length <= 1) {
+          const jogosDia = jogosAgrupados[ddmm] || [];
+          const qtdJogos = jogosDia.length;
+          const qtdSociais = info ? info.sociais.length : 0;
+
+          // Mostra resumo de jogos no card
+          if (qtdJogos > 0) {
+            const div = document.createElement('div');
+            div.style.cssText = 'margin-top:6px;padding-top:6px;border-top:1px dashed #e0e0e0;font-size:10px;color:#555;';
+            div.innerHTML = `⚽ <strong>${qtdJogos} jogo${qtdJogos > 1 ? 's' : ''}</strong>`;
+            card.appendChild(div);
+          }
+
+          // Alerta de sobrecarga
+          if (qtdJogos >= 3 && qtdSociais <= 1) {
             card.classList.add('alerta');
             const badge = document.createElement('span');
             badge.className = 'alerta-badge';
-            badge.textContent = `⚠️ ${qtdJogos} jogos · ${info.sociais.length === 0 ? '0' : '1'} social`;
+            badge.textContent = `⚠️ ${qtdJogos} jogos · ${qtdSociais === 0 ? '0' : '1'} social`;
             card.appendChild(badge);
           }
         });

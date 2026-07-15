@@ -195,6 +195,30 @@ app.get('/influenciadoras', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'influenciadoras.html'));
 });
 
+// ── Test email ──────────────────────────────────────────────────────
+app.get('/api/test-email', async (req, res) => {
+  try {
+    const tipo = req.query.tipo || 'semanal'; // ?tipo=alerta ou ?tipo=semanal
+    if (tipo === 'alerta') {
+      await enviarAlertaSobrecarga([{
+        data: 'TESTE',
+        qtdJogos: 3,
+        qtdSociais: 1,
+        socaisEscalados: ['Yves Lara'],
+        jogos: [{ nome: 'Jogo A 15:00' }, { nome: 'Jogo B 17:00' }, { nome: 'Jogo C 19:00' }]
+      }]);
+      res.json({ ok: true, mensagem: 'Email de alerta enviado para bruna@road.ag' });
+    } else {
+      const { getEscalaProxDias } = require('./src/escala');
+      const { escalaFiltrada } = await getEscalaProxDias(9);
+      await enviarResumoSemanal(escalaFiltrada);
+      res.json({ ok: true, mensagem: 'Emails semanais enviados para todo o time' });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
 // ── Escala ──────────────────────────────────────────────────────────
 let escalaCache = null;
 let escalaCacheTime = 0;
