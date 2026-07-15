@@ -197,7 +197,8 @@ app.get('/influenciadoras', (req, res) => {
 
 // ── Test email ──────────────────────────────────────────────────────
 app.get('/api/test-email', async (req, res) => {
-  if (req.query.secret !== process.env.ADMIN_SECRET) {
+  const adminSecret = process.env.ADMIN_SECRET;
+  if (!adminSecret || req.query.secret !== adminSecret) {
     return res.status(401).json({ erro: 'Não autorizado' });
   }
   try {
