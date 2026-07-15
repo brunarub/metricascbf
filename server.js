@@ -159,22 +159,26 @@ app.post('/api/refresh-token', async (req, res) => {
   }
 });
 
-// Cache do calendário de jogos — 15 minutos (mesmo padrão dos outros caches)
+// Cache do calendário — 12h (API da CBF bloqueia cloud IPs com frequência)
+const CALENDARIO_CACHE_TTL = 12 * 60 * 60 * 1000;
 const calendarioCache = { games: null, ts: 0 };
 
 // GET /api/calendario — jogos do Brasileirão Feminino A1 e Copa do Brasil Feminino,
 // vindos da API interna (não oficial) do cbf.com.br.
 app.get('/api/calendario', async (req, res) => {
   try {
-    if (calendarioCache.games && (Date.now() - calendarioCache.ts) < CACHE_TTL) {
+    if (calendarioCache.games && (Date.now() - calendarioCache.ts) < CALENDARIO_CACHE_TTL) {
       return res.json(calendarioCache.games);
     }
 
     const games = await getCalendario();
-    // Só armazena no cache se voltaram jogos — evita cachear falha da API da CBF
     if (games.length > 0) {
       calendarioCache.games = games;
       calendarioCache.ts = Date.now();
+    } else if (calendarioCache.games) {
+      // API falhou mas temos cache antigo — devolve o que temos
+      console.warn('⚠️ CBF API retornou vazio, usando cache antigo.');
+      return res.json(calendarioCache.games);
     }
     res.json(games);
   } catch (err) {
