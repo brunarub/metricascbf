@@ -198,6 +198,31 @@ app.get('/influenciadoras', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'influenciadoras.html'));
 });
 
+// ── Debug calendário ────────────────────────────────────────────────
+app.get('/api/debug-calendario', async (req, res) => {
+  const adminSecret = process.env.ADMIN_SECRET;
+  if (!adminSecret || req.query.secret !== adminSecret) {
+    return res.status(401).json({ erro: 'Não autorizado' });
+  }
+  try {
+    const axios = require('axios');
+    const https = require('https');
+    const url = 'https://www.cbf.com.br/api/cbf/calendario/jogos/2026/07/22';
+    const r = await axios.get(url, {
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.cbf.com.br/futebol-brasileiro/calendario',
+      }
+    });
+    res.json({ status: r.status, keys: Object.keys(r.data || {}), jogosKeys: Object.keys(r.data?.jogos || {}) });
+  } catch (err) {
+    res.json({ erro: err.message, code: err.response?.status });
+  }
+});
+
 // ── Test email ──────────────────────────────────────────────────────
 app.get('/api/test-email', async (req, res) => {
   const adminSecret = process.env.ADMIN_SECRET;
