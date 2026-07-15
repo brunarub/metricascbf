@@ -197,6 +197,9 @@ app.get('/influenciadoras', (req, res) => {
 
 // ── Test email ──────────────────────────────────────────────────────
 app.get('/api/test-email', async (req, res) => {
+  if (req.query.secret !== process.env.ADMIN_SECRET) {
+    return res.status(401).json({ erro: 'Não autorizado' });
+  }
   try {
     const tipo = req.query.tipo || 'semanal'; // ?tipo=alerta ou ?tipo=semanal
     if (tipo === 'alerta') {
