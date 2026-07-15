@@ -114,7 +114,7 @@ function parsearEscala(rows) {
 
         // Ignorar "CONTEÚDOS QUENTES", linhas de mês e dias da semana
         const ignorar = ['CONTEÚDOS QUENTES', 'JULHO', 'AGOSTO', 'JUNHO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO',
-          'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo', ''];
+          'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
         if (!nomeCell || ignorar.some(ig => nomeCell.toUpperCase().includes(ig.toUpperCase()))) {
           j++; continue;
         }
