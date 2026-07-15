@@ -3,7 +3,12 @@
 
 const { Resend } = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Inicializa Resend de forma lazy para não quebrar se a variável ainda não estiver carregada
+let _resend = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 const BRUNA_EMAIL = 'bruna@road.ag';
 const LINK_ESCALA = 'https://docs.google.com/spreadsheets/d/1q70NUkhhIt5Kk8mZTIJ6huDyEIXbEydgE1xj00pGWrk/edit';
@@ -94,7 +99,7 @@ async function enviarAlertaSobrecarga(alertas) {
   const assunto = `⚠️ Alerta de escala: ${datasStr} — sobrecarga de jogos`;
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: 'CBF Hub <onboarding@resend.dev>',
       to: [BRUNA_EMAIL],
       subject: assunto,
@@ -205,7 +210,7 @@ async function enviarResumoSemanal(escalaFiltrada) {
     const nome = primeiroNomeDoEmail(email);
 
     try {
-      const result = await resend.emails.send({
+      const result = await getResend().emails.send({
         from: 'CBF Hub <onboarding@resend.dev>',
         to: [email],
         subject: `📅 Escala da semana — ${new Date().toLocaleDateString('pt-BR')}`,
