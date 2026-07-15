@@ -24,7 +24,15 @@ const COMPETITIONS = [
 
 async function fetchDia(ano, mes, dia) {
   const url = `${BASE_URL}/${ano}/${String(mes).padStart(2, '0')}/${String(dia).padStart(2, '0')}`;
-  const res = await axios.get(url, { httpsAgent: insecureAgent });
+  const res = await axios.get(url, {
+    httpsAgent: insecureAgent,
+    timeout: 10000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Referer': 'https://www.cbf.com.br/futebol-brasileiro/calendario',
+    }
+  });
   return res.data.jogos || {};
 }
 

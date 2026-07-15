@@ -171,8 +171,11 @@ app.get('/api/calendario', async (req, res) => {
     }
 
     const games = await getCalendario();
-    calendarioCache.games = games;
-    calendarioCache.ts = Date.now();
+    // Só armazena no cache se voltaram jogos — evita cachear falha da API da CBF
+    if (games.length > 0) {
+      calendarioCache.games = games;
+      calendarioCache.ts = Date.now();
+    }
     res.json(games);
   } catch (err) {
     console.error('Erro /api/calendario:', err.response?.data || err.message);
