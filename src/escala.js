@@ -55,54 +55,105 @@ async function lerPlanilha() {
   return res.data.values || [];
 }
 
-// Converte os dados brutos em estrutura utilizável
-// Retorna: { cabecalho, pessoas, diasPorData }
+// Verifica se uma célula parece uma data (ex: "13/7", "1/7", "13/07")
+function ehData(val) {
+  return val && /^\d{1,2}\/\d{1,2}$/.test(String(val).trim());
+}
+
+// Verifica se a pessoa está trabalhando (qualquer valor que não seja "Folga" vazio)
+function estaTrabalho(status) {
+  if (!status || status.trim() === '') return false;
+  return !status.toLowerCase().includes('folga');
+}
+
+// Normaliza data para formato DD/MM (ex: "13/7" → "13/07", "1/7" → "01/07")
+function normalizarData(val) {
+  const parts = String(val).trim().split('/');
+  if (parts.length !== 2) return val;
+  return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}`;
+}
+
+// Parseia a planilha com estrutura de blocos semanais
+// Cada bloco tem: linha de mês (merged), linha de dias da semana, linha de datas, linhas de pessoas
 function parsearEscala(rows) {
   if (!rows || rows.length < 2) return { cabecalho: [], pessoas: [], diasPorData: {} };
 
-  // Primeira linha = cabeçalho (datas ou nomes de colunas)
-  const cabecalho = rows[0];
-
-  // Linhas seguintes = uma por pessoa
-  const pessoas = [];
+  const pessoas = new Map(); // nome → { ehSocial, escalaDias }
   const diasPorData = {};
 
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || !row[0]) continue; // linha vazia
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i] || [];
 
-    const nomePessoa = row[0]?.trim() || '';
-    if (!nomePessoa) continue;
-
-    const ehSocial = SOCIAL_NAMES.some(s => nomePessoa.toLowerCase().includes(s));
-
-    const escalaDias = {};
-
-    // Colunas a partir da 1 = dias/datas
-    for (let c = 1; c < cabecalho.length; c++) {
-      const colLabel = cabecalho[c]?.trim() || '';
-      const valor = row[c]?.trim() || '';
-
-      // "T" = trabalhando/escalada, "F" = folga, "HC" = hot content
-      escalaDias[colLabel] = valor;
-
-      if (!diasPorData[colLabel]) {
-        diasPorData[colLabel] = { sociais: [], todos: [] };
+    // Detecta linha de datas: col A vazia e col B tem formato "13/7"
+    const colB = String(row[1] || '').trim();
+    if (!row[0] && ehData(colB)) {
+      // Extrair datas das colunas B-H (índices 1-7)
+      const datasBloco = [];
+      for (let c = 1; c <= 7; c++) {
+        const v = String(row[c] || '').trim();
+        datasBloco.push(v ? normalizarData(v) : null);
       }
 
-      diasPorData[colLabel].todos.push({ nome: nomePessoa, status: valor });
-
-      const estaTrabalhandoOuHC = valor === 'T' || valor.toUpperCase().includes('HC') || valor === '1' || valor.toLowerCase() === 'sim';
-
-      if (ehSocial && estaTrabalhandoOuHC) {
-        diasPorData[colLabel].sociais.push(nomePessoa);
+      // Inicializar diasPorData para essas datas
+      for (const data of datasBloco) {
+        if (data && !diasPorData[data]) {
+          diasPorData[data] = { sociais: [], todos: [] };
+        }
       }
+
+      // Ler linhas de pessoas a seguir
+      let j = i + 1;
+      while (j < rows.length) {
+        const pRow = rows[j] || [];
+        const nomeCell = String(pRow[0] || '').trim();
+
+        // Parar se linha vazia ou nova linha de datas
+        if (!nomeCell && !pRow[1]) { j++; break; }
+        if (!nomeCell && ehData(String(pRow[1] || '').trim())) break;
+
+        // Ignorar "CONTEÚDOS QUENTES", linhas de mês e dias da semana
+        const ignorar = ['CONTEÚDOS QUENTES', 'JULHO', 'AGOSTO', 'JUNHO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO',
+          'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo', ''];
+        if (!nomeCell || ignorar.some(ig => nomeCell.toUpperCase().includes(ig.toUpperCase()))) {
+          j++; continue;
+        }
+
+        const ehSocial = SOCIAL_NAMES.some(s => nomeCell.toLowerCase().includes(s));
+
+        if (!pessoas.has(nomeCell)) {
+          pessoas.set(nomeCell, { ehSocial, escalaDias: {} });
+        }
+
+        // Mapear status por data
+        for (let c = 0; c < datasBloco.length; c++) {
+          const data = datasBloco[c];
+          if (!data) continue;
+          const status = String(pRow[c + 1] || '').trim();
+
+          pessoas.get(nomeCell).escalaDias[data] = status;
+
+          if (!diasPorData[data]) diasPorData[data] = { sociais: [], todos: [] };
+
+          diasPorData[data].todos.push({ nome: nomeCell, status });
+
+          if (ehSocial && estaTrabalho(status)) {
+            if (!diasPorData[data].sociais.includes(nomeCell)) {
+              diasPorData[data].sociais.push(nomeCell);
+            }
+          }
+        }
+
+        j++;
+      }
+      i = j;
+    } else {
+      i++;
     }
-
-    pessoas.push({ nome: nomePessoa, ehSocial, escalaDias });
   }
 
-  return { cabecalho, pessoas, diasPorData };
+  const pessoasArr = Array.from(pessoas.entries()).map(([nome, dados]) => ({ nome, ...dados }));
+  return { cabecalho: Object.keys(diasPorData), pessoas: pessoasArr, diasPorData };
 }
 
 // Retorna escala da semana atual + próxima semana
