@@ -130,7 +130,7 @@ function descHorario(p) {
   if (!p) return '';
   if (ehJogo(p.status)) {
     if (p.horarioCalculado) return `⚽ Plantão ${p.horarioCalculado}`;
-    return `⚽ ${p.status} (horário normal)`;
+    return `⚽ ${p.status}`;
   }
   if (/\d+h/.test(p.status)) return `🕐 Plantão ${p.status}`;
   return '✓ Horário normal';

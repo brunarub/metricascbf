@@ -353,11 +353,10 @@
     const tipo = classificarStatus(p.status);
     if (tipo === 'jogo') {
       if (p.horarioCalculado) {
-        // Plantão estendido (fora do horário normal)
         return `<span class="status-badge status-plantao">⚽ ${p.horarioCalculado}</span>`;
       }
-      // Jogo dentro do horário normal
-      return `<span class="status-badge status-trabalho">⚽ normal</span>`;
+      // Sem dado de horário do jogo ainda (calendário não carregado ou jogo dentro do horário normal)
+      return `<span class="status-badge status-jogo">⚽ ${p.status}</span>`;
     }
     if (tipo === 'horario') return `<span class="status-badge status-horario">${p.status}</span>`;
     if (tipo === 'trabalho') return `<span class="status-badge status-trabalho">✓</span>`;
