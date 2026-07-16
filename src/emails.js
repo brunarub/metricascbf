@@ -43,12 +43,15 @@ async function getTransporter() {
     host,
     port: 587,
     secure: false, // STARTTLS
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD
     },
     tls: {
-      servername: 'smtp.gmail.com' // necessário pois conectamos via IP, não hostname
+      servername: 'smtp.gmail.com'
     }
   });
 }
