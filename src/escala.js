@@ -18,6 +18,57 @@ const SOCIAL_NAMES = [
   'yves', 'rafaela', 'rafa'
 ];
 
+// Estagiárias: turno de 6h. Todos os outros: 8h.
+const INTERNOS = ['yves', 'gabi'];
+
+// Palavras-chave que indicam cobertura de jogo na célula da planilha
+const JOGOS_KEYWORDS_ESCALA = ['brasileirão','brasileirao','copa','libertadores','sulamericana','in loco'];
+
+function ehCoberturaDejogo(status) {
+  if (!status) return false;
+  const s = status.toLowerCase();
+  return JOGOS_KEYWORDS_ESCALA.some(k => s.includes(k));
+}
+
+function isIntern(nome) {
+  return INTERNOS.some(n => nome.toLowerCase().includes(n));
+}
+
+// Horário padrão: 10h–19h (Brasília). Plantão especial só quando o
+// jogo termina depois das 19h — caso contrário o horário normal já cobre.
+// Regra de almoço: se o início cair antes das 13h, adiciona 1h.
+// Brazil = UTC-3 (sem horário de verão)
+function calcularHorarioPlantao(kickoffISO, intern) {
+  const OFFSET_MS = 3 * 60 * 60 * 1000; // UTC-3 em ms
+  const kickoff = new Date(kickoffISO);
+
+  // Representa a hora do kickoff e do fim em "UTC fake" = horário BR
+  const kickoffBR = new Date(kickoff.getTime() - OFFSET_MS);
+  const fimBR     = new Date(kickoffBR.getTime() + 3 * 60 * 60 * 1000);
+
+  const kickoffMinBR = kickoffBR.getUTCHours() * 60 + kickoffBR.getUTCMinutes();
+  const fimMinBR     = fimBR.getUTCHours()     * 60 + fimBR.getUTCMinutes();
+
+  // Dentro do horário padrão (10h–19h)? Não precisa de plantão especial.
+  if (kickoffMinBR >= 10 * 60 && fimMinBR <= 19 * 60) return null;
+
+  const turnoMin = (intern ? 6 : 8) * 60;
+
+  // Início base
+  let inicioMin = fimMinBR - turnoMin;
+
+  // Adiciona 1h de almoço se o início cair antes das 13h
+  if (inicioMin < 13 * 60) inicioMin -= 60;
+
+  const fmtMin = (totalMin) => {
+    const h = Math.floor(((totalMin % (24 * 60)) + 24 * 60) % (24 * 60) / 60);
+    const m = ((totalMin % 60) + 60) % 60;
+    return `${String(h).padStart(2, '0')}h${m > 0 ? String(m).padStart(2, '0') : ''}`;
+  };
+
+  return `${fmtMin(inicioMin)}-${fmtMin(fimMinBR)}`;
+}
+
 async function getAuthClient() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -204,4 +255,7 @@ async function getEscalaProxDias(diasAfrente = 9) {
   return { escalaFiltrada, pessoas, atualizadoEm: new Date().toISOString() };
 }
 
-module.exports = { getEscalaSemana, getEscalaProxDias, detectarSobrecarga };
+module.exports = {
+  getEscalaSemana, getEscalaProxDias, detectarSobrecarga,
+  calcularHorarioPlantao, ehCoberturaDejogo, isIntern
+};

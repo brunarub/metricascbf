@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, refreshAccessToken } = require('./src/instagram');
 const { getCalendario } = require('./src/calendario');
-const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga } = require('./src/escala');
+const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
 
 const app = express();
@@ -255,6 +255,53 @@ app.get('/api/test-email', async (req, res) => {
   }
 });
 
+// ── Enriquecimento escala × jogos ───────────────────────────────────
+// Cruza diasPorData com o calendário: injeta horarioCalculado e jogoCobertura
+// em cada entrada de todos[] que representa cobertura de jogo.
+function enriquecerEscalaComJogos(dadosEscala, jogos) {
+  // Agrupa jogos por DD/MM
+  const jogosPorData = {};
+  for (const j of jogos) {
+    const raw = j.data || '';
+    const m = raw.match(/(\d{1,2})[\/\-](\d{1,2})/);
+    if (!m || !j.datetime) continue;
+    const chave = `${m[1].padStart(2,'0')}/${m[2].padStart(2,'0')}`;
+    if (!jogosPorData[chave]) jogosPorData[chave] = [];
+    jogosPorData[chave].push(j);
+  }
+
+  for (const [data, info] of Object.entries(dadosEscala.diasPorData)) {
+    const ddmm = data.substring(0, 5);
+    const jogosDoDia = jogosPorData[ddmm] || [];
+    if (!jogosDoDia.length) continue;
+
+    for (const pessoa of info.todos) {
+      if (!ehCoberturaDejogo(pessoa.status) && !/\d+h/.test(pessoa.status)) continue;
+
+      // Encontra o jogo mais relevante: prioriza o que tem a keyword no status
+      let jogo = jogosDoDia.find(j => {
+        const s = pessoa.status.toLowerCase();
+        const c = (j.competicao || '').toLowerCase();
+        return (s.includes('brasileir') && c.includes('brasileir')) ||
+               (s.includes('copa') && c.includes('copa')) ||
+               (s.includes('libertadores') && c.includes('libertadores'));
+      }) || jogosDoDia[0];
+
+      const horario = calcularHorarioPlantao(jogo.datetime, isIntern(pessoa.nome));
+      pessoa.horarioCalculado = horario; // null = horário normal (10h-19h) já cobre
+      pessoa.jogoCobertura = {
+        competicao: jogo.competicao,
+        mandante:   jogo.mandante?.nome  || '?',
+        visitante:  jogo.visitante?.nome || '?',
+        hora:       jogo.hora || null,
+        datetime:   jogo.datetime
+      };
+    }
+  }
+
+  return dadosEscala;
+}
+
 // ── Escala ──────────────────────────────────────────────────────────
 let escalaCache = null;
 let escalaCacheTime = 0;
@@ -267,6 +314,7 @@ app.get('/api/escala', async (req, res) => {
       return res.json(escalaCache);
     }
     const dados = await getEscalaSemana();
+    if (calendarioCache.games?.length) enriquecerEscalaComJogos(dados, calendarioCache.games);
     escalaCache = dados;
     escalaCacheTime = agora;
     res.json(dados);

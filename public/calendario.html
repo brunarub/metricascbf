@@ -284,35 +284,50 @@
     border-radius: 8px;
     padding: 20px 24px;
     margin: 24px auto;
-    max-width: 1000px;
+    max-width: 1100px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     border: 1px solid #e0e0e0;
   }
-  #painel-escala h2 { color: #003478; font-size: 18px; margin: 0 0 16px; }
-  .escala-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  #painel-escala h2 { color: #003478; font-size: 18px; margin: 0 0 4px; }
+  .escala-legenda {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+    font-size: 11px; color: #555; align-items: center;
+  }
+  .escala-legenda span { display: flex; align-items: center; gap: 3px; }
+  .escala-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
   .escala-dia { border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; font-size: 12px; background: #fafafa; }
   .escala-dia.alerta { border-color: #dc3545; background: #fff5f5; }
+  .escala-dia.sem-cobertura { border-color: #e65100; background: #fff8f5; }
   .escala-dia .data-label { font-weight: bold; color: #003478; margin-bottom: 8px; font-size: 12px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
-  .escala-pessoa { display: flex; align-items: flex-start; gap: 4px; margin-bottom: 4px; line-height: 1.3; }
-  .escala-pessoa .nome { color: #333; flex: 1; }
-  .escala-pessoa .status-badge {
-    font-size: 10px; padding: 1px 5px; border-radius: 8px; white-space: nowrap; flex-shrink: 0;
-  }
+  .escala-dia .jogos-label { font-size: 10px; color: #e65100; font-weight: bold; margin-bottom: 4px; }
+  .escala-pessoa { display: flex; align-items: flex-start; gap: 4px; margin-bottom: 3px; line-height: 1.3; }
+  .escala-pessoa .nome { color: #333; flex: 1; font-size: 11px; }
+  .escala-pessoa .status-badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
   .role-badge { font-size: 8px; font-weight: bold; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; margin-right: 1px; }
   .role-s { background: #e3f2fd; color: #1565c0; }
   .role-d { background: #fce4ec; color: #880e4f; }
-  .role-sep { font-size: 9px; color: #bbb; margin: 5px 0 3px; padding-top: 4px; border-top: 1px dashed #eee; display: block; }
+  .role-sep { font-size: 9px; color: #aaa; margin: 5px 0 3px; padding-top: 4px; border-top: 1px dashed #eee; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
   .status-trabalho { background: #e8f5e9; color: #2e7d32; }
   .status-horario { background: #e3f2fd; color: #1565c0; }
+  .status-plantao { background: #fff3e0; color: #e65100; font-weight: bold; }
   .status-jogo { background: #fff3e0; color: #e65100; font-weight: bold; }
   .status-folga { color: #bbb; }
-  .alerta-badge { display: inline-block; background: #dc3545; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 6px; width: 100%; text-align: center; }
+  .alerta-badge { display: block; background: #dc3545; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 6px; text-align: center; }
+  .cobertura-badge { display: block; background: #e65100; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 4px; text-align: center; }
   .sem-dados { color: #bbb; font-size: 11px; font-style: italic; }
   #escala-loading { color: #888; font-size: 14px; padding: 20px 0; text-align: center; }
+  .dupla-cobertura { font-size: 10px; color: #555; background: #f5f5f5; border-radius: 4px; padding: 3px 6px; margin-top: 4px; line-height: 1.4; }
 </style>
 
 <div id="painel-escala">
   <h2>👥 Escala da semana</h2>
+  <div class="escala-legenda">
+    <span><span class="role-badge role-s">S</span> Social</span>
+    <span><span class="role-badge role-d">D</span> Designer</span>
+    <span><span class="status-badge status-trabalho" style="font-size:10px">✓</span> Horário normal (10h–19h)</span>
+    <span><span class="status-badge status-horario" style="font-size:10px">7h-13h</span> Plantão (horário alternativo)</span>
+    <span><span class="status-badge status-jogo" style="font-size:10px">⚽</span> Cobertura de jogo</span>
+  </div>
   <div id="escala-loading">Carregando escala...</div>
   <div class="escala-grid" id="escala-grid" style="display:none"></div>
 </div>
@@ -322,8 +337,6 @@
   const grid = document.getElementById('escala-grid');
   const loading = document.getElementById('escala-loading');
   const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-
-  // Competições conhecidas que indicam cobertura de jogo
   const JOGOS_KEYWORDS = ['brasileirão','brasileirao','copa','libertadores','sulamericana','in loco'];
 
   function classificarStatus(status) {
@@ -335,28 +348,34 @@
     return 'trabalho';
   }
 
-  function renderPessoa(nome, status, role) {
-    const tipo = classificarStatus(status);
-    if (tipo === 'ausente') return '';
+  // Retorna o badge de status considerando horarioCalculado (do servidor)
+  function badgeStatus(p) {
+    const tipo = classificarStatus(p.status);
+    if (tipo === 'jogo') {
+      if (p.horarioCalculado) {
+        // Plantão estendido (fora do horário normal)
+        return `<span class="status-badge status-plantao">⚽ ${p.horarioCalculado}</span>`;
+      }
+      // Jogo dentro do horário normal
+      return `<span class="status-badge status-trabalho">⚽ normal</span>`;
+    }
+    if (tipo === 'horario') return `<span class="status-badge status-horario">${p.status}</span>`;
+    if (tipo === 'trabalho') return `<span class="status-badge status-trabalho">✓</span>`;
+    return '';
+  }
 
-    const roleBadge = role === 'SOCIAL'
+  function renderPessoa(p) {
+    const tipo = classificarStatus(p.status);
+    if (tipo === 'ausente') return '';
+    const roleBadge = p.role === 'SOCIAL'
       ? '<span class="role-badge role-s">S</span>'
-      : role === 'DESIGNER'
+      : p.role === 'DESIGNER'
       ? '<span class="role-badge role-d">D</span>'
       : '';
-
     if (tipo === 'folga') {
-      return `<div class="escala-pessoa">${roleBadge}<span class="nome status-folga">${nome}</span></div>`;
+      return `<div class="escala-pessoa">${roleBadge}<span class="nome status-folga">${p.nome}</span></div>`;
     }
-    let badgeHtml = '';
-    if (tipo === 'jogo') {
-      badgeHtml = `<span class="status-badge status-jogo">⚽ ${status}</span>`;
-    } else if (tipo === 'horario') {
-      badgeHtml = `<span class="status-badge status-horario">${status}</span>`;
-    } else {
-      badgeHtml = `<span class="status-badge status-trabalho">✓</span>`;
-    }
-    return `<div class="escala-pessoa">${roleBadge}<span class="nome">${nome}</span>${badgeHtml}</div>`;
+    return `<div class="escala-pessoa">${roleBadge}<span class="nome">${p.nome}</span>${badgeStatus(p)}</div>`;
   }
 
   try {
@@ -396,7 +415,11 @@
           return (ordemRole[a.role] ?? 2) - (ordemRole[b.role] ?? 2);
         });
 
-        // Agrupa com separador entre SOCIAL e DESIGNER
+        // Duplas de cobertura: social × designer que estão no mesmo jogo
+        const cobrindoJogo = sorted.filter(p => classificarStatus(p.status) === 'jogo' || p.jogoCobertura);
+        const sociaisJogo = cobrindoJogo.filter(p => p.role === 'SOCIAL').map(p => p.nome);
+        const designersJogo = cobrindoJogo.filter(p => p.role === 'DESIGNER').map(p => p.nome);
+
         let lastRole = null;
         pessoasHtml = sorted.map(p => {
           const tipo = classificarStatus(p.status);
@@ -406,8 +429,25 @@
             sep = `<span class="role-sep">${p.role === 'DESIGNER' ? 'Design' : 'Social'}</span>`;
           }
           lastRole = p.role;
-          return sep + renderPessoa(p.nome, p.status, p.role);
+          return sep + renderPessoa(p);
         }).join('');
+
+        // Bloco de dupla de cobertura (se houver jogo)
+        if (cobrindoJogo.length > 0 && info.todos[0]?.jogoCobertura) {
+          const jc = info.todos.find(p => p.jogoCobertura)?.jogoCobertura;
+          const nomeJogo = jc ? `${jc.mandante} × ${jc.visitante}` : 'Jogo';
+          if (sociaisJogo.length > 0 || designersJogo.length > 0) {
+            pessoasHtml += `<div class="dupla-cobertura">
+              ⚽ <strong>${nomeJogo}</strong><br>
+              ${sociaisJogo.length ? `Social: ${sociaisJogo.join(', ')}` : '⚠️ Sem social'}${designersJogo.length ? `<br>Design: ${designersJogo.join(', ')}` : '<br>⚠️ Sem designer'}
+            </div>`;
+          }
+        }
+
+        // Sem cobertura social para jogo com +2 jogos
+        if (sociaisJogo.length === 0 && cobrindoJogo.length > 0) {
+          card.classList.add('sem-cobertura');
+        }
       } else {
         pessoasHtml = '<div class="sem-dados">Sem dados</div>';
       }
@@ -423,7 +463,6 @@
         const jogos = await calRes.json();
         const jogosAgrupados = {};
         for (const j of jogos) {
-          // Normaliza data para DD/MM
           const raw = j.data || j.date || j.dataFormatada || '';
           const m = raw.match(/(\d{1,2})[\/\-](\d{1,2})/);
           if (!m) continue;
@@ -440,12 +479,11 @@
           const qtdJogos = jogosDia.length;
           const qtdSociais = info ? info.sociais.length : 0;
 
-          // Mostra resumo de jogos no card
           if (qtdJogos > 0) {
             const div = document.createElement('div');
-            div.style.cssText = 'margin-top:6px;padding-top:6px;border-top:1px dashed #e0e0e0;font-size:10px;color:#555;';
-            div.innerHTML = `⚽ <strong>${qtdJogos} jogo${qtdJogos > 1 ? 's' : ''}</strong>`;
-            card.appendChild(div);
+            div.className = 'jogos-label';
+            div.innerHTML = `⚽ ${qtdJogos} jogo${qtdJogos > 1 ? 's' : ''} no calendário`;
+            card.querySelector('.data-label').after(div);
           }
 
           // Alerta de sobrecarga
