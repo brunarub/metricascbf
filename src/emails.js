@@ -2,6 +2,7 @@
 // Emails via Gmail (nodemailer): alertas de sobrecarga + resumo semanal para o time
 
 const nodemailer = require('nodemailer');
+const dns = require('dns').promises;
 
 const BRUNA_EMAIL = 'bruna@road.ag';
 const LINK_ESCALA = 'https://docs.google.com/spreadsheets/d/1q70NUkhhIt5Kk8mZTIJ6huDyEIXbEydgE1xj00pGWrk/edit';
@@ -29,15 +30,26 @@ function formatarData(dateObj) {
   return `${dia}, ${d} ${m}`;
 }
 
-function getTransporter() {
+// Resolve smtp.gmail.com para IPv4 antes de conectar
+// (Render não roteia IPv6, então precisamos forçar IPv4 na resolução DNS)
+async function getTransporter() {
+  let host = 'smtp.gmail.com';
+  try {
+    const addrs = await dns.resolve4('smtp.gmail.com');
+    if (addrs && addrs.length > 0) host = addrs[0];
+  } catch (_) { /* usa hostname como fallback */ }
+
   return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
+    host,
     port: 587,
     secure: false, // STARTTLS
-    family: 4,     // Força IPv4 (Render não suporta IPv6)
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD
+    },
+    tls: {
+      rejectUnauthorized: false,
+      servername: 'smtp.gmail.com' // validação do certificado com o hostname original
     }
   });
 }
@@ -92,7 +104,7 @@ function htmlAlertaSobrecarga(alertas) {
 async function enviarAlertaSobrecarga(alertas) {
   if (!alertas || alertas.length === 0) return;
   const datasStr = alertas.map(a => a.data).join(', ');
-  const transporter = getTransporter();
+  const transporter = await getTransporter();
   try {
     const result = await transporter.sendMail({
       from: `"CBF Hub" <${process.env.GMAIL_USER}>`,
@@ -175,7 +187,7 @@ function primeiroNomeDoEmail(email) {
 
 async function enviarResumoSemanal(escalaFiltrada) {
   console.log('📧 Enviando resumo semanal...');
-  const transporter = getTransporter();
+  const transporter = await getTransporter();
   const resultados = [];
 
   for (const email of TIME_EMAILS) {

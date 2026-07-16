@@ -306,13 +306,25 @@ function agendarEmailSexta() {
   const proximaSexta = new Date(agora);
   proximaSexta.setUTCHours(12, 0, 0, 0);
   const diaSemana = proximaSexta.getUTCDay();
-  const diasAte = (5 - diaSemana + 7) % 7 || 7;
-  if (diaSemana === 5 && agora.getUTCHours() >= 12) {
-    proximaSexta.setUTCDate(proximaSexta.getUTCDate() + 7);
+
+  // Calcula quantos dias faltam para a próxima sexta-feira
+  if (diaSemana === 5) {
+    // Hoje é sexta: se já passou das 12h UTC, agenda para próxima semana
+    if (agora.getUTCHours() >= 12) {
+      proximaSexta.setUTCDate(proximaSexta.getUTCDate() + 7);
+    }
+    // Se ainda não chegou às 12h UTC, dispara hoje (proximaSexta já está certo)
   } else {
+    const diasAte = (5 - diaSemana + 7) % 7;
     proximaSexta.setUTCDate(proximaSexta.getUTCDate() + diasAte);
   }
+
   const ms = proximaSexta - agora;
+  // Segurança: nunca agenda com ms <= 0
+  if (ms <= 0) {
+    proximaSexta.setUTCDate(proximaSexta.getUTCDate() + 7);
+  }
+
   console.log(`📅 Próximo resumo semanal: ${proximaSexta.toISOString()}`);
   setTimeout(async () => {
     try {
@@ -322,7 +334,7 @@ function agendarEmailSexta() {
       console.error('Erro email semanal:', err.message);
     }
     agendarEmailSexta();
-  }, ms);
+  }, proximaSexta - new Date()); // recalcula ms no momento do agendamento
 }
 
 app.listen(PORT, () => {
