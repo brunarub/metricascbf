@@ -48,8 +48,7 @@ async function getTransporter() {
       pass: process.env.GMAIL_APP_PASSWORD
     },
     tls: {
-      rejectUnauthorized: false,
-      servername: 'smtp.gmail.com' // validação do certificado com o hostname original
+      servername: 'smtp.gmail.com' // necessário pois conectamos via IP, não hostname
     }
   });
 }
