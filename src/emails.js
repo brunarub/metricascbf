@@ -1,8 +1,7 @@
 // src/emails.js
 // Emails via Gmail (nodemailer): alertas de sobrecarga + resumo semanal para o time
 
-const nodemailer = require('nodemailer');
-const dns = require('dns').promises;
+const axios = require('axios');
 
 const BRUNA_EMAIL = 'bruna@road.ag';
 const LINK_ESCALA = 'https://docs.google.com/spreadsheets/d/1q70NUkhhIt5Kk8mZTIJ6huDyEIXbEydgE1xj00pGWrk/edit';
@@ -30,29 +29,24 @@ function formatarData(dateObj) {
   return `${dia}, ${d} ${m}`;
 }
 
-// Resolve smtp.gmail.com para IPv4 antes de conectar
-// (Render não roteia IPv6, então precisamos forçar IPv4 na resolução DNS)
-async function getTransporter() {
-  let host = 'smtp.gmail.com';
-  try {
-    const addrs = await dns.resolve4('smtp.gmail.com');
-    if (addrs && addrs.length > 0) host = addrs[0];
-  } catch (_) { /* usa hostname como fallback */ }
+// Envia email via Brevo HTTP API (sem SMTP — funciona no Render free tier)
+async function enviarBrevo({ to, subject, html }) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) throw new Error('BREVO_API_KEY não configurada');
 
-  return nodemailer.createTransport({
-    host,
-    port: 587,
-    secure: false, // STARTTLS
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD
+  const toArr = Array.isArray(to) ? to : [{ email: to }];
+
+  await axios.post('https://api.brevo.com/v3/smtp/email', {
+    sender: { name: 'CBF Hub', email: process.env.BREVO_SENDER || 'copadobrasilfeminina@gmail.com' },
+    to: toArr,
+    subject,
+    htmlContent: html
+  }, {
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json'
     },
-    tls: {
-      servername: 'smtp.gmail.com'
-    }
+    timeout: 15000
   });
 }
 
@@ -106,18 +100,15 @@ function htmlAlertaSobrecarga(alertas) {
 async function enviarAlertaSobrecarga(alertas) {
   if (!alertas || alertas.length === 0) return;
   const datasStr = alertas.map(a => a.data).join(', ');
-  const transporter = await getTransporter();
   try {
-    const result = await transporter.sendMail({
-      from: `"CBF Hub" <${process.env.GMAIL_USER}>`,
+    await enviarBrevo({
       to: BRUNA_EMAIL,
       subject: `⚠️ Alerta de escala: ${datasStr} — sobrecarga de jogos`,
       html: htmlAlertaSobrecarga(alertas)
     });
     console.log('✅ Alerta enviado para', BRUNA_EMAIL);
-    return result;
   } catch (err) {
-    console.error('❌ Erro ao enviar alerta:', err.message);
+    console.error('❌ Erro ao enviar alerta:', err.response?.data || err.message);
     throw err;
   }
 }
@@ -189,14 +180,12 @@ function primeiroNomeDoEmail(email) {
 
 async function enviarResumoSemanal(escalaFiltrada) {
   console.log('📧 Enviando resumo semanal...');
-  const transporter = await getTransporter();
   const resultados = [];
 
   for (const email of TIME_EMAILS) {
     const nome = primeiroNomeDoEmail(email);
     try {
-      await transporter.sendMail({
-        from: `"CBF Hub" <${process.env.GMAIL_USER}>`,
+      await enviarBrevo({
         to: email,
         subject: `📅 Escala da semana — ${new Date().toLocaleDateString('pt-BR')}`,
         html: htmlResumoSemanal(nome, escalaFiltrada)
@@ -204,8 +193,8 @@ async function enviarResumoSemanal(escalaFiltrada) {
       console.log(`  ✅ Enviado para ${email}`);
       resultados.push({ email, ok: true });
     } catch (err) {
-      console.error(`  ❌ Erro para ${email}:`, err.message);
-      resultados.push({ email, ok: false, erro: err.message });
+      console.error(`  ❌ Erro para ${email}:`, err.response?.data || err.message);
+      resultados.push({ email, ok: false, erro: err.response?.data || err.message });
     }
     await new Promise(r => setTimeout(r, 300));
   }
