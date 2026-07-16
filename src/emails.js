@@ -1,19 +1,11 @@
 // src/emails.js
-// Emails via Resend: alertas de sobrecarga + resumo semanal para o time
+// Emails via Gmail (nodemailer): alertas de sobrecarga + resumo semanal para o time
 
-const { Resend } = require('resend');
-
-// Inicializa Resend de forma lazy para não quebrar se a variável ainda não estiver carregada
-let _resend = null;
-function getResend() {
-  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
-  return _resend;
-}
+const nodemailer = require('nodemailer');
 
 const BRUNA_EMAIL = 'bruna@road.ag';
 const LINK_ESCALA = 'https://docs.google.com/spreadsheets/d/1q70NUkhhIt5Kk8mZTIJ6huDyEIXbEydgE1xj00pGWrk/edit';
 
-// Todos os emails do time
 const TIME_EMAILS = [
   'natalia@road.ag',
   'leocattari@outlook.com',
@@ -27,7 +19,6 @@ const TIME_EMAILS = [
   'rafaelaroad97@gmail.com'
 ];
 
-// Dias da semana em português
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -36,6 +27,16 @@ function formatarData(dateObj) {
   const d = String(dateObj.getDate()).padStart(2, '0');
   const m = MESES[dateObj.getMonth()];
   return `${dia}, ${d} ${m}`;
+}
+
+function getTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD
+    }
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -67,48 +68,39 @@ function htmlAlertaSobrecarga(alertas) {
   }).join('');
 
   return `
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:20px;">
+    <!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:20px;">
       <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
         <div style="background:#003478;padding:24px;text-align:center;">
           <h1 style="color:#fff;margin:0;font-size:20px;">⚠️ Alerta de Escala — Sobrecarga detectada</h1>
         </div>
         <div style="padding:24px;">
-          <p style="color:#333;">Olá, Bruna! Os dias abaixo têm <strong>3 ou mais jogos</strong> com poucas sociais escaladas. Verifique a escala.</p>
+          <p style="color:#333;">Olá, Bruna! Os dias abaixo têm <strong>3 ou mais jogos</strong> com poucas sociais escaladas.</p>
           ${linhas}
           <div style="text-align:center;margin-top:24px;">
-            <a href="${LINK_ESCALA}" style="background:#003478;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;font-weight:bold;">
-              Abrir Planilha de Escala
-            </a>
+            <a href="${LINK_ESCALA}" style="background:#003478;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;font-weight:bold;">Abrir Planilha de Escala</a>
           </div>
         </div>
-        <div style="background:#f0f0f0;padding:16px;text-align:center;font-size:12px;color:#888;">
-          Enviado automaticamente pelo sistema CBF Hub
-        </div>
+        <div style="background:#f0f0f0;padding:16px;text-align:center;font-size:12px;color:#888;">Enviado automaticamente pelo CBF Hub</div>
       </div>
-    </body>
-    </html>
+    </body></html>
   `;
 }
 
 async function enviarAlertaSobrecarga(alertas) {
   if (!alertas || alertas.length === 0) return;
-
   const datasStr = alertas.map(a => a.data).join(', ');
-  const assunto = `⚠️ Alerta de escala: ${datasStr} — sobrecarga de jogos`;
-
+  const transporter = getTransporter();
   try {
-    const result = await getResend().emails.send({
-      from: 'CBF Hub <onboarding@resend.dev>',
-      to: [BRUNA_EMAIL],
-      subject: assunto,
+    const result = await transporter.sendMail({
+      from: `"CBF Hub" <${process.env.GMAIL_USER}>`,
+      to: BRUNA_EMAIL,
+      subject: `⚠️ Alerta de escala: ${datasStr} — sobrecarga de jogos`,
       html: htmlAlertaSobrecarga(alertas)
     });
-    console.log('✅ Email de alerta enviado para', BRUNA_EMAIL, result);
+    console.log('✅ Alerta enviado para', BRUNA_EMAIL);
     return result;
   } catch (err) {
-    console.error('❌ Erro ao enviar alerta de sobrecarga:', err.message);
+    console.error('❌ Erro ao enviar alerta:', err.message);
     throw err;
   }
 }
@@ -117,49 +109,36 @@ async function enviarAlertaSobrecarga(alertas) {
 // 2. RESUMO SEMANAL → todo o time (sexta 9h)
 // ─────────────────────────────────────────────
 
-function htmlResumoSemanal(nomeDestinatario, emailDestinatario, escalaFiltrada) {
+function htmlResumoSemanal(nomeDestinatario, escalaFiltrada) {
   const dias = Object.entries(escalaFiltrada);
 
   const linhasDias = dias.map(([ddmm, info]) => {
     if (info.semDados) {
-      return `
-        <tr>
-          <td style="padding:10px 8px;border-bottom:1px solid #eee;color:#999;">${formatarData(info.dateObj)} (${ddmm})</td>
-          <td style="padding:10px 8px;border-bottom:1px solid #eee;color:#bbb;" colspan="2">Sem dados na escala</td>
-        </tr>
-      `;
+      return `<tr><td style="padding:10px 8px;border-bottom:1px solid #eee;color:#999;">${formatarData(info.dateObj)} (${ddmm})</td><td colspan="2" style="padding:10px 8px;border-bottom:1px solid #eee;color:#bbb;">Sem dados</td></tr>`;
     }
 
-    // Verifica se o destinatário está escalado nesse dia
-    const destinatarioEscalado = info.todos.some(p =>
+    const destinatarioEscalado = info.todos && info.todos.some(p =>
       p.nome.toLowerCase().includes(nomeDestinatario.toLowerCase()) &&
-      (p.status === 'T' || p.status.toUpperCase().includes('HC') || p.status === '1' || p.status.toLowerCase() === 'sim')
+      p.status.toLowerCase() !== 'folga' && p.status !== ''
     );
 
     const statusCell = destinatarioEscalado
       ? `<span style="background:#003478;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:bold;">Você está escalada</span>`
       : `<span style="background:#e9ecef;color:#666;padding:2px 10px;border-radius:12px;font-size:12px;">Folga</span>`;
 
-    const outros = info.sociais.filter(n => !n.toLowerCase().includes(nomeDestinatario.toLowerCase()));
-    const outrosStr = outros.length > 0
-      ? outros.join(', ')
-      : '—';
+    const outros = info.sociais ? info.sociais.filter(n => !n.toLowerCase().includes(nomeDestinatario.toLowerCase())).join(', ') : '—';
 
     return `
       <tr style="${destinatarioEscalado ? 'background:#f0f4ff;' : ''}">
-        <td style="padding:10px 8px;border-bottom:1px solid #eee;font-weight:${destinatarioEscalado ? 'bold' : 'normal'};color:#333;">
-          ${formatarData(info.dateObj)} (${ddmm})
-        </td>
+        <td style="padding:10px 8px;border-bottom:1px solid #eee;font-weight:${destinatarioEscalado ? 'bold' : 'normal'};color:#333;">${formatarData(info.dateObj)} (${ddmm})</td>
         <td style="padding:10px 8px;border-bottom:1px solid #eee;">${statusCell}</td>
-        <td style="padding:10px 8px;border-bottom:1px solid #eee;color:#555;font-size:13px;">${outrosStr}</td>
+        <td style="padding:10px 8px;border-bottom:1px solid #eee;color:#555;font-size:13px;">${outros || '—'}</td>
       </tr>
     `;
   }).join('');
 
   return `
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:20px;">
+    <!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:20px;">
       <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
         <div style="background:#003478;padding:24px;text-align:center;">
           <h1 style="color:#fff;margin:0 0 4px;font-size:22px;">Escala da Semana</h1>
@@ -167,7 +146,6 @@ function htmlResumoSemanal(nomeDestinatario, emailDestinatario, escalaFiltrada) 
         </div>
         <div style="padding:24px;">
           <p style="color:#333;font-size:15px;">Olá! Aqui está a escala dos próximos dias.</p>
-
           <table style="width:100%;border-collapse:collapse;font-size:14px;">
             <thead>
               <tr style="background:#f8f9fa;">
@@ -176,57 +154,44 @@ function htmlResumoSemanal(nomeDestinatario, emailDestinatario, escalaFiltrada) 
                 <th style="padding:10px 8px;text-align:left;border-bottom:2px solid #003478;color:#003478;">Outros sociais</th>
               </tr>
             </thead>
-            <tbody>
-              ${linhasDias}
-            </tbody>
+            <tbody>${linhasDias}</tbody>
           </table>
-
           <div style="margin-top:20px;padding:12px;background:#f8f9fa;border-radius:4px;font-size:13px;color:#666;">
-            💡 Para ver a escala completa com toda a equipe, acesse a planilha:
-            <a href="${LINK_ESCALA}" style="color:#003478;font-weight:bold;">Planilha de Escala</a>
+            💡 <a href="${LINK_ESCALA}" style="color:#003478;font-weight:bold;">Ver planilha completa</a>
           </div>
         </div>
-        <div style="background:#f0f0f0;padding:16px;text-align:center;font-size:12px;color:#888;">
-          Enviado automaticamente toda sexta-feira pelo CBF Hub
-        </div>
+        <div style="background:#f0f0f0;padding:16px;text-align:center;font-size:12px;color:#888;">Enviado automaticamente toda sexta-feira pelo CBF Hub</div>
       </div>
-    </body>
-    </html>
+    </body></html>
   `;
 }
 
-// Extrai o primeiro nome a partir do email (para personalizar)
 function primeiroNomeDoEmail(email) {
-  const parte = email.split('@')[0];
-  // Remove números e pontos, pega primeira palavra
-  return parte.replace(/[0-9]/g, '').split(/[._-]/)[0];
+  return email.split('@')[0].replace(/[0-9]/g, '').split(/[._-]/)[0];
 }
 
 async function enviarResumoSemanal(escalaFiltrada) {
-  console.log('📧 Enviando resumo semanal para o time...');
+  console.log('📧 Enviando resumo semanal...');
+  const transporter = getTransporter();
   const resultados = [];
 
   for (const email of TIME_EMAILS) {
     const nome = primeiroNomeDoEmail(email);
-
     try {
-      const result = await getResend().emails.send({
-        from: 'CBF Hub <onboarding@resend.dev>',
-        to: [email],
+      await transporter.sendMail({
+        from: `"CBF Hub" <${process.env.GMAIL_USER}>`,
+        to: email,
         subject: `📅 Escala da semana — ${new Date().toLocaleDateString('pt-BR')}`,
-        html: htmlResumoSemanal(nome, email, escalaFiltrada)
+        html: htmlResumoSemanal(nome, escalaFiltrada)
       });
       console.log(`  ✅ Enviado para ${email}`);
       resultados.push({ email, ok: true });
     } catch (err) {
-      console.error(`  ❌ Erro ao enviar para ${email}:`, err.message);
+      console.error(`  ❌ Erro para ${email}:`, err.message);
       resultados.push({ email, ok: false, erro: err.message });
     }
-
-    // Pequena pausa para não estourar rate limit
     await new Promise(r => setTimeout(r, 300));
   }
-
   return resultados;
 }
 
