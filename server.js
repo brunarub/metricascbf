@@ -183,7 +183,7 @@ app.get('/api/debug-account-insights', async (req, res) => {
       try {
         const r = await axios.get(`${BASE_URL}/${account.id}/insights`, {
           params: {
-            metric: 'impressions',
+            metric: 'views',
             period: 'day',
             since: sinceTs,
             until: untilTs,

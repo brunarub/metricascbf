@@ -100,7 +100,7 @@ async function getPostInsights(postId) {
 async function getAccountInsights(accountId, since, until) {
   const url = `${BASE_URL}/${accountId}/insights`;
   const params = {
-    metric: 'impressions',
+    metric: 'views',
     period: 'day',
     since,
     until,
@@ -108,7 +108,7 @@ async function getAccountInsights(accountId, since, until) {
   };
   const res = await axios.get(url, { params });
   const data = res.data.data || [];
-  const impressions = data.find(m => m.name === 'impressions');
+  const impressions = data.find(m => m.name === 'views');
   if (!impressions) return 0;
   // period=day retorna array de { end_time, value } — somamos todos
   const values = impressions.values || [];
