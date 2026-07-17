@@ -165,6 +165,43 @@ app.get('/api/account-insights', async (req, res) => {
   }
 });
 
+// GET /api/debug-account-insights?since=YYYY-MM-DD&until=YYYY-MM-DD
+// Retorna a resposta bruta da Graph API — útil para diagnosticar o formato.
+app.get('/api/debug-account-insights', async (req, res) => {
+  try {
+    const { since, until } = req.query;
+    if (!since || !until) return res.status(400).json({ error: 'since e until obrigatórios' });
+    const sinceTs = Math.floor(new Date(since + 'T00:00:00-03:00').getTime() / 1000);
+    const untilTs = Math.floor(new Date(until + 'T23:59:59-03:00').getTime() / 1000);
+
+    const axios = require('axios');
+    const BASE_URL = `https://graph.facebook.com/${process.env.GRAPH_API_VERSION || 'v21.0'}`;
+    const accounts = getAccounts();
+    const raw = {};
+
+    for (const account of accounts) {
+      try {
+        const r = await axios.get(`${BASE_URL}/${account.id}/insights`, {
+          params: {
+            metric: 'impressions',
+            period: 'day',
+            since: sinceTs,
+            until: untilTs,
+            access_token: process.env.META_ACCESS_TOKEN,
+          }
+        });
+        raw[account.label] = r.data;
+      } catch (err) {
+        raw[account.label] = { error: err.response?.data || err.message };
+      }
+    }
+
+    res.json({ sinceTs, untilTs, raw });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/refresh-token — troca o token atual por um novo de longa duração (~60 dias).
 // Pensado para ser chamado por um cron mensal (ver render.yaml), já que o token de
 // longa duração da Meta expira em 60 dias.
