@@ -106,6 +106,7 @@
     .badge-carrossel { background: #D9E2EC; color: var(--navy); }
     .badge-reels { background: var(--navy); color: var(--primary); }
     .badge-shorts { background: #FF0000; color: #fff; }
+    .badge-tiktok { background: #010101; color: #fff; }
     .platform-icon { font-size: 0.9rem; margin-right: 4px; vertical-align: middle; }
     .profile-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
     .dot-copa_do_brasil { background: #3d99e0; }
@@ -204,6 +205,7 @@
         <option value="">Todas as plataformas</option>
         <option value="instagram">Instagram</option>
         <option value="youtube">YouTube</option>
+        <option value="tiktok">TikTok</option>
       </select>
       <select id="type-filter">
         <option value="">Todos os tipos</option>
@@ -257,10 +259,10 @@
     let sortDir = -1;
     let phase = 1;
 
-    const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels', SHORTS: 'Shorts' };
-    const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels', SHORTS: 'badge-shorts' };
+    const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels', SHORTS: 'Shorts', TIKTOK: 'TikTok' };
+    const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels', SHORTS: 'badge-shorts', TIKTOK: 'badge-tiktok' };
     const PROFILE_COLORS = { copa_do_brasil: '#3d99e0', brasileirao: '#3dcc3d', brasileiras: '#cc3dcc' };
-    const PLATFORM_ICON = { instagram: '📸', youtube: '▶️' };
+    const PLATFORM_ICON = { instagram: '📸', youtube: '▶️', tiktok: '🎵' };
 
     function fmt(n) {
       if (n === null || n === undefined || n === '') return '—';
@@ -418,9 +420,11 @@
         const typeLabel = TYPE_LABELS[p.media_type] || p.media_type || '?';
         const typeClass = TYPE_CLASS[p.media_type] || '';
         const isYT = p.platform === 'youtube';
-        const platIcon = isYT ? '<span class="platform-icon">▶️</span>' : '';
-        const viewsVal = isYT ? fmt(p.view_count) : fmt(ins.views);
-        const viewsClass = (!isYT && phase === 1) ? 'loading' : '';
+        const isTT = p.platform === 'tiktok';
+        const isExternal = isYT || isTT;
+        const platIcon = isYT ? '<span class="platform-icon">▶️</span>' : isTT ? '<span class="platform-icon">🎵</span>' : '';
+        const viewsVal = isExternal ? fmt(p.view_count) : fmt(ins.views);
+        const viewsClass = (!isExternal && phase === 1) ? 'loading' : '';
 
         return `<tr>
           <td class="thumb">${thumb ? `<img src="${thumb}" onerror="this.style.display='none'"/>` : '<div class="no-thumb">📷</div>'}</td>
@@ -431,11 +435,11 @@
           <td class="metric">${fmt(p.like_count)}</td>
           <td class="metric">${fmt(p.comments_count)}</td>
           <td class="metric ${viewsClass}">${viewsVal}</td>
-          <td class="metric ${(!isYT && phase===1)?'loading':''}">${isYT ? '—' : fmt(ins.saved)}</td>
-          <td class="metric ${(!isYT && phase===1)?'loading':''}">${isYT ? '—' : fmt(ins.shares)}</td>
-          <td class="metric ${(!isYT && phase===1)?'loading':''}">${isYT ? '—' : fmt(ins.follows)}</td>
-          <td class="metric eng-rate">${engRate ? engRate+'%' : ((!isYT && phase===1)?'…':'—')}</td>
-          <td>${(!isYT && phase===1) ? '' : getPerfBadge(p, avgEng)}</td>
+          <td class="metric ${(!isExternal && phase===1)?'loading':''}">${isExternal ? '—' : fmt(ins.saved)}</td>
+          <td class="metric ${(!isExternal && phase===1)?'loading':''}">${isTT ? fmt(p.shares) : isYT ? '—' : fmt(ins.shares)}</td>
+          <td class="metric ${(!isExternal && phase===1)?'loading':''}">${isExternal ? '—' : fmt(ins.follows)}</td>
+          <td class="metric eng-rate">${engRate ? engRate+'%' : ((!isExternal && phase===1)?'…':'—')}</td>
+          <td>${(!isExternal && phase===1) ? '' : getPerfBadge(p, avgEng)}</td>
           <td><a class="post-link" href="${p.permalink}" target="_blank">↗</a></td>
         </tr>`;
       }).join('');
@@ -693,22 +697,28 @@
     // Fase 1: carrega posts Instagram + YouTube em paralelo
     async function loadPosts() {
       try {
-        const [igRes, ytRes] = await Promise.all([
+        const [igRes, ytRes, ttRes] = await Promise.all([
           fetch('/api/posts'),
           fetch('/api/youtube-posts'),
+          fetch('/api/tiktok-posts'),
         ]);
         if (!igRes.ok) throw new Error(await igRes.text());
         const igPosts = await igRes.json();
         const ytPosts = ytRes.ok ? await ytRes.json() : [];
+        const ttPosts = ttRes.ok ? await ttRes.json() : [];
 
-        // YouTube: marca plataforma e pré-popula insights (já tem view_count embutido)
+        // YouTube e TikTok: marca plataforma e pré-popula insights
         ytPosts.forEach(p => {
           p.platform = 'youtube';
-          insights[p.id] = { views: p.view_count || 0, saved: 0, shares: 0, follows: 0, total_interactions: (p.like_count||0) + (p.comments_count||0) };
+          insights[p.id] = { views: p.view_count || 0, saved: 0, shares: p.shares || 0, follows: 0, total_interactions: (p.like_count||0) + (p.comments_count||0) };
+        });
+        ttPosts.forEach(p => {
+          p.platform = 'tiktok';
+          insights[p.id] = { views: p.view_count || 0, saved: 0, shares: p.shares || 0, follows: 0, total_interactions: (p.like_count||0) + (p.comments_count||0) };
         });
         igPosts.forEach(p => { if (!p.platform) p.platform = 'instagram'; });
 
-        allPosts = [...igPosts, ...ytPosts]
+        allPosts = [...igPosts, ...ytPosts, ...ttPosts]
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         phase = 1;

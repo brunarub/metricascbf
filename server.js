@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, refreshAccessToken } = require('./src/instagram');
 const { getYouTubePosts, getYouTubeAccounts } = require('./src/youtube');
+const { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal } = require('./src/tiktok');
 const { getCalendario } = require('./src/calendario');
 const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
@@ -130,6 +131,108 @@ app.post('/api/insights/batch', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── TikTok OAuth ─────────────────────────────────────────────────────────────
+
+// GET /auth/tiktok?account=brasileiras — inicia o fluxo OAuth para uma conta
+app.get('/auth/tiktok', (req, res) => {
+  const account = req.query.account;
+  if (!account) return res.status(400).send('Parâmetro account obrigatório');
+  if (!process.env.TIKTOK_CLIENT_KEY) return res.status(500).send('TIKTOK_CLIENT_KEY não configurada');
+  res.redirect(getAuthUrl(account));
+});
+
+// GET /auth/tiktok/callback — TikTok redireciona aqui após o login
+app.get('/auth/tiktok/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.send(`❌ Erro TikTok: ${error}`);
+  if (!code) return res.status(400).send('Código de autorização não recebido');
+
+  try {
+    const tokenData = await exchangeCode(code);
+    const accountLabel = state || 'desconhecido';
+
+    const tokens = readTokens();
+    tokens[accountLabel] = {
+      access_token:  tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      open_id:       tokenData.open_id,
+      connected_at:  new Date().toISOString(),
+    };
+    writeTokensLocal(tokens);
+
+    // Instrução para salvar no Render
+    const tokenJson = JSON.stringify(tokens);
+    res.send(`
+      <html><body style="font-family:Arial;max-width:700px;margin:60px auto;padding:0 24px">
+      <h2>✅ TikTok conectado: <b>${accountLabel}</b></h2>
+      <p>Conta autenticada com sucesso! Agora você precisa salvar o token no Render para persistir após o deploy.</p>
+      <p><b>Copie o valor abaixo</b> e adicione como variável de ambiente <code>TIKTOK_TOKENS</code> no Render:</p>
+      <textarea rows="4" style="width:100%;font-size:0.8rem;padding:8px">${tokenJson.replace(/</g,'&lt;')}</textarea>
+      <p><a href="/">← Voltar ao dashboard</a></p>
+      </body></html>
+    `);
+  } catch (err) {
+    console.error('Erro TikTok callback:', err.response?.data || err.message);
+    res.status(500).send(`❌ Erro ao trocar token: ${err.message}`);
+  }
+});
+
+// GET /api/tiktok-posts — vídeos das contas TikTok conectadas
+const ttCache = { posts: null, ts: 0 };
+app.get('/api/tiktok-posts', async (req, res) => {
+  try {
+    if (!process.env.TIKTOK_CLIENT_KEY) return res.json([]);
+    const tokens = readTokens();
+    if (!Object.keys(tokens).length) return res.json([]);
+    if (ttCache.posts && (Date.now() - ttCache.ts) < CACHE_TTL) {
+      return res.json(ttCache.posts);
+    }
+    const posts = await getTikTokPosts();
+    ttCache.posts = posts;
+    ttCache.ts = Date.now();
+    res.json(posts);
+  } catch (err) {
+    console.error('Erro /api/tiktok-posts:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /conectar-tiktok — página para conectar contas TikTok
+app.get('/conectar-tiktok', (req, res) => {
+  const tokens = readTokens();
+  const accounts = ['brasileiras', 'copa_do_brasil', 'brasileirao'];
+  const rows = accounts.map(a => {
+    const connected = tokens[a]?.access_token;
+    const status = connected
+      ? `✅ Conectado em ${new Date(tokens[a].connected_at).toLocaleDateString('pt-BR')}`
+      : '❌ Não conectado';
+    return `<tr>
+      <td style="padding:12px 16px;font-weight:700">${a}</td>
+      <td style="padding:12px 16px">${status}</td>
+      <td style="padding:12px 16px"><a href="/auth/tiktok?account=${a}" style="background:#ff2d55;color:#fff;padding:8px 16px;border-radius:8px;text-decoration:none;font-weight:700">
+        ${connected ? '🔄 Reconectar' : '🔗 Conectar'}
+      </a></td>
+    </tr>`;
+  }).join('');
+  res.send(`
+    <html><body style="font-family:Arial;max-width:700px;margin:60px auto;padding:0 24px">
+    <h1 style="color:#0A2342">🎵 Conectar contas TikTok</h1>
+    <p>Cada responsável pela conta precisa clicar em "Conectar" e fazer login com o TikTok correspondente.</p>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;border-radius:8px;overflow:hidden">
+      <thead><tr style="background:#0A2342;color:#fff">
+        <th style="padding:12px 16px;text-align:left">Conta</th>
+        <th style="padding:12px 16px;text-align:left">Status</th>
+        <th style="padding:12px 16px;text-align:left">Ação</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin-top:24px"><a href="/">← Voltar ao dashboard</a></p>
+    </body></html>
+  `);
+});
+
+// ─── YouTube ──────────────────────────────────────────────────────────────────
 
 // GET /api/youtube-posts?limit=50 — vídeos dos canais YouTube configurados
 const ytCache = { posts: null, ts: 0 };
