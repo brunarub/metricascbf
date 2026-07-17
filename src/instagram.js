@@ -95,6 +95,26 @@ async function getPostInsights(postId) {
   }
 }
 
+// Busca impressões diárias da conta em um período (inclui Stories, Reels, Feed).
+// since/until = Unix timestamp (segundos).
+async function getAccountInsights(accountId, since, until) {
+  const url = `${BASE_URL}/${accountId}/insights`;
+  const params = {
+    metric: 'impressions',
+    period: 'day',
+    since,
+    until,
+    access_token: currentToken,
+  };
+  const res = await axios.get(url, { params });
+  const data = res.data.data || [];
+  const impressions = data.find(m => m.name === 'impressions');
+  if (!impressions) return 0;
+  // period=day retorna array de { end_time, value } — somamos todos
+  const values = impressions.values || [];
+  return values.reduce((s, v) => s + (v.value || 0), 0);
+}
+
 // Busca seguidores de uma conta
 async function getFollowersCount(accountId) {
   const url = `${BASE_URL}/${accountId}`;
@@ -118,4 +138,4 @@ async function getPostsByDate(accountId, dateStr) {
   });
 }
 
-module.exports = { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getPostsByDate, refreshAccessToken, setToken };
+module.exports = { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, getPostsByDate, refreshAccessToken, setToken };

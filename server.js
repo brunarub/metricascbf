@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, refreshAccessToken } = require('./src/instagram');
+const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, refreshAccessToken } = require('./src/instagram');
 const { getCalendario } = require('./src/calendario');
 const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
@@ -126,6 +126,41 @@ app.post('/api/insights/batch', async (req, res) => {
     res.json(results);
   } catch (err) {
     console.error('Erro /api/insights/batch:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/account-insights?since=YYYY-MM-DD&until=YYYY-MM-DD
+// Retorna impressões reais da conta (Feed + Reels + Stories) para o período.
+// since/until são datas no formato YYYY-MM-DD (convertidas para Unix aqui).
+app.get('/api/account-insights', async (req, res) => {
+  try {
+    const { since, until } = req.query;
+    if (!since || !until) {
+      return res.status(400).json({ error: 'since e until são obrigatórios (YYYY-MM-DD)' });
+    }
+    // Converte para Unix timestamp (segundos) — since = início do dia, until = fim do dia
+    const sinceTs = Math.floor(new Date(since + 'T00:00:00-03:00').getTime() / 1000);
+    const untilTs = Math.floor(new Date(until + 'T23:59:59-03:00').getTime() / 1000);
+
+    const accounts = getAccounts();
+    const byAccount = {};
+    let total = 0;
+
+    for (const account of accounts) {
+      try {
+        const impressions = await getAccountInsights(account.id, sinceTs, untilTs);
+        byAccount[account.label] = impressions;
+        total += impressions;
+      } catch (err) {
+        console.error(`Erro account-insights ${account.label}:`, err.response?.data?.error || err.message);
+        byAccount[account.label] = null;
+      }
+    }
+
+    res.json({ total, byAccount });
+  } catch (err) {
+    console.error('Erro /api/account-insights:', err);
     res.status(500).json({ error: err.message });
   }
 });

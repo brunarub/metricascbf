@@ -37,6 +37,7 @@
     .kpi-compare { display: block; margin-top: 4px; font-size: 0.72rem; font-weight: 700; }
     .kpi-compare.positive { color: #2e7d32; }
     .kpi-compare.negative { color: #c62828; }
+    .kpi-sub { display: block; margin-top: 4px; font-size: 0.7rem; color: var(--navy-soft); font-weight: 600; }
 
     /* Título de seção */
     .section-title { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--navy); margin: 28px 0 12px; display: flex; align-items: center; gap: 8px; }
@@ -153,7 +154,8 @@
       <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div><div class="kpi-compare" id="kpi-posts-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div><div class="kpi-compare" id="kpi-likes-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Comentários</div><div class="kpi-value" id="kpi-comments">—</div><div class="kpi-compare" id="kpi-comments-cmp"></div></div>
-      <div class="kpi"><div class="kpi-label">Visualizações Totais</div><div class="kpi-value" id="kpi-views">—</div><div class="kpi-compare" id="kpi-views-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Views (Feed/Reels)</div><div class="kpi-value" id="kpi-views">—</div><div class="kpi-compare" id="kpi-views-cmp"></div></div>
+      <div class="kpi" title="Impressões reais da conta no período (inclui Stories, Reels e Feed). Disponível quando datas são selecionadas."><div class="kpi-label">Impressões da Conta ★</div><div class="kpi-value" id="kpi-impressions">—</div><div class="kpi-sub" id="kpi-impressions-sub"></div></div>
       <div class="kpi"><div class="kpi-label">Seguidores Ganhos</div><div class="kpi-value" id="kpi-follows">—</div><div class="kpi-compare" id="kpi-follows-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Eng. Médio</div><div class="kpi-value" id="kpi-eng">—</div><div class="kpi-compare" id="kpi-eng-cmp"></div></div>
     </div>
@@ -420,6 +422,7 @@
       updateKPIs(posts);
       renderTopPosts(posts);
       renderChartsDebounced(posts);
+      fetchAccountImpressions();
     }
 
     function updateKPIs(posts) {
@@ -443,6 +446,48 @@
       renderComparison('kpi-views-cmp', sums.views, prevSums.views);
       renderComparison('kpi-follows-cmp', sums.follows, prevSums.follows);
       renderComparison('kpi-eng-cmp', sums.eng, prevSums.eng);
+    }
+
+    // Busca impressões reais da conta (inclui Stories + todos os formatos) para o período selecionado.
+    let accountInsightsFetchId = 0;
+    async function fetchAccountImpressions() {
+      const since = document.getElementById('date-start').value;
+      const until = document.getElementById('date-end').value;
+      const el = document.getElementById('kpi-impressions');
+      const sub = document.getElementById('kpi-impressions-sub');
+
+      if (!since || !until) {
+        el.textContent = '—';
+        sub.textContent = 'selecione um período';
+        return;
+      }
+
+      el.textContent = '…';
+      sub.textContent = '';
+      const fetchId = ++accountInsightsFetchId;
+
+      try {
+        const res = await fetch(`/api/account-insights?since=${since}&until=${until}`);
+        if (fetchId !== accountInsightsFetchId) return; // resposta obsoleta
+        const data = await res.json();
+        if (data.error) {
+          el.textContent = '—';
+          sub.textContent = data.error.substring(0, 60);
+          return;
+        }
+        el.textContent = fmt(data.total);
+        // Detalha por conta se houver mais de uma
+        const entries = Object.entries(data.byAccount).filter(([, v]) => v !== null);
+        if (entries.length > 1) {
+          sub.textContent = entries.map(([label, v]) => `${label}: ${fmt(v)}`).join(' · ');
+        } else {
+          sub.textContent = 'Feed + Reels + Stories';
+        }
+      } catch (e) {
+        if (fetchId !== accountInsightsFetchId) return;
+        el.textContent = '—';
+        sub.textContent = 'erro ao buscar';
+      }
     }
 
     // Top 5 posts do período filtrado por visualizações, salvamentos e engajamento
