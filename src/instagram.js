@@ -101,6 +101,7 @@ async function getAccountInsights(accountId, since, until) {
   const url = `${BASE_URL}/${accountId}/insights`;
   const params = {
     metric: 'views',
+    metric_type: 'total_value',
     period: 'day',
     since,
     until,
@@ -108,10 +109,12 @@ async function getAccountInsights(accountId, since, until) {
   };
   const res = await axios.get(url, { params });
   const data = res.data.data || [];
-  const impressions = data.find(m => m.name === 'views');
-  if (!impressions) return 0;
-  // period=day retorna array de { end_time, value } — somamos todos
-  const values = impressions.values || [];
+  const metric = data.find(m => m.name === 'views');
+  if (!metric) return 0;
+  // com metric_type=total_value: total_value.value (soma do período)
+  // ou values[] com { value, end_time } por dia — aceita os dois formatos
+  if (metric.total_value?.value !== undefined) return metric.total_value.value;
+  const values = metric.values || [];
   return values.reduce((s, v) => s + (v.value || 0), 0);
 }
 

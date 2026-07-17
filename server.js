@@ -184,6 +184,7 @@ app.get('/api/debug-account-insights', async (req, res) => {
         const r = await axios.get(`${BASE_URL}/${account.id}/insights`, {
           params: {
             metric: 'views',
+            metric_type: 'total_value',
             period: 'day',
             since: sinceTs,
             until: untilTs,
