@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, refreshAccessToken } = require('./src/instagram');
+const { getYouTubePosts, getYouTubeAccounts } = require('./src/youtube');
 const { getCalendario } = require('./src/calendario');
 const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
@@ -126,6 +127,25 @@ app.post('/api/insights/batch', async (req, res) => {
     res.json(results);
   } catch (err) {
     console.error('Erro /api/insights/batch:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/youtube-posts?limit=50 — vídeos dos canais YouTube configurados
+const ytCache = { posts: null, ts: 0 };
+app.get('/api/youtube-posts', async (req, res) => {
+  try {
+    if (!process.env.YT_API_KEY) return res.json([]);
+    if (ytCache.posts && (Date.now() - ytCache.ts) < CACHE_TTL) {
+      return res.json(ytCache.posts);
+    }
+    const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+    const posts = await getYouTubePosts(limit);
+    ytCache.posts = posts;
+    ytCache.ts = Date.now();
+    res.json(posts);
+  } catch (err) {
+    console.error('Erro /api/youtube-posts:', err);
     res.status(500).json({ error: err.message });
   }
 });

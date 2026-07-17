@@ -105,6 +105,8 @@
     .badge-video { background: var(--primary); color: var(--navy); }
     .badge-carrossel { background: #D9E2EC; color: var(--navy); }
     .badge-reels { background: var(--navy); color: var(--primary); }
+    .badge-shorts { background: #FF0000; color: #fff; }
+    .platform-icon { font-size: 0.9rem; margin-right: 4px; vertical-align: middle; }
     .profile-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
     .dot-copa_do_brasil { background: #3d99e0; }
     .dot-brasileirao { background: #3dcc3d; }
@@ -198,12 +200,18 @@
 
     <div class="filters">
       <input type="text" id="search" placeholder="Buscar legenda ou perfil..." />
+      <select id="platform-filter">
+        <option value="">Todas as plataformas</option>
+        <option value="instagram">Instagram</option>
+        <option value="youtube">YouTube</option>
+      </select>
       <select id="type-filter">
         <option value="">Todos os tipos</option>
         <option value="IMAGE">Foto</option>
         <option value="VIDEO">Vídeo</option>
         <option value="CAROUSEL_ALBUM">Carrossel</option>
         <option value="REELS">Reels</option>
+        <option value="SHORTS">Shorts</option>
       </select>
       <label>De <input type="date" id="date-start" /></label>
       <label>Até <input type="date" id="date-end" /></label>
@@ -249,9 +257,10 @@
     let sortDir = -1;
     let phase = 1;
 
-    const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels' };
-    const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels' };
+    const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels', SHORTS: 'Shorts' };
+    const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels', SHORTS: 'badge-shorts' };
     const PROFILE_COLORS = { copa_do_brasil: '#3d99e0', brasileirao: '#3dcc3d', brasileiras: '#cc3dcc' };
+    const PLATFORM_ICON = { instagram: '📸', youtube: '▶️' };
 
     function fmt(n) {
       if (n === null || n === undefined || n === '') return '—';
@@ -274,11 +283,13 @@
     function getFilteredPosts() {
       const search = document.getElementById('search').value.toLowerCase();
       const typeFilter = document.getElementById('type-filter').value;
+      const platformFilter = document.getElementById('platform-filter').value;
       const dateStart = document.getElementById('date-start').value;
       const dateEnd = document.getElementById('date-end').value;
       return allPosts.filter(p => {
         if (activeTab !== 'todos' && p.account_label !== activeTab) return false;
         if (typeFilter && p.media_type !== typeFilter) return false;
+        if (platformFilter && (p.platform || 'instagram') !== platformFilter) return false;
         if (search && !(p.caption || '').toLowerCase().includes(search) && !(p.account_label || '').toLowerCase().includes(search)) return false;
         if (dateStart || dateEnd) {
           const postDate = p.timestamp ? p.timestamp.substring(0, 10) : '';
@@ -313,25 +324,31 @@
 
       const search = document.getElementById('search').value.toLowerCase();
       const typeFilter = document.getElementById('type-filter').value;
+      const platformFilter = document.getElementById('platform-filter').value;
 
       return allPosts.filter(p => {
         if (activeTab !== 'todos' && p.account_label !== activeTab) return false;
         if (typeFilter && p.media_type !== typeFilter) return false;
+        if (platformFilter && (p.platform || 'instagram') !== platformFilter) return false;
         if (search && !(p.caption || '').toLowerCase().includes(search) && !(p.account_label || '').toLowerCase().includes(search)) return false;
         const postDate = p.timestamp ? p.timestamp.substring(0, 10) : '';
         return postDate >= prevStartStr && postDate <= prevEndStr;
       });
     }
 
+    // Retorna as views de um post independente da plataforma
+    function getPostViews(p) {
+      if (p.platform === 'youtube') return p.view_count || 0;
+      return insights[p.id]?.views || 0;
+    }
+
     function computeKpiSums(posts) {
-      const totalViews = posts.reduce((s, p) => s + (insights[p.id]?.views || 0), 0);
-      const totalFollows = posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0);
       return {
         posts: posts.length,
         likes: posts.reduce((s, p) => s + (p.like_count || 0), 0),
         comments: posts.reduce((s, p) => s + (p.comments_count || 0), 0),
-        views: totalViews,
-        follows: totalFollows,
+        views: posts.reduce((s, p) => s + getPostViews(p), 0),
+        follows: posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0),
         eng: getAvgEngRate(posts),
       };
     }
@@ -400,21 +417,25 @@
         const color = PROFILE_COLORS[p.account_label] || '#888';
         const typeLabel = TYPE_LABELS[p.media_type] || p.media_type || '?';
         const typeClass = TYPE_CLASS[p.media_type] || '';
+        const isYT = p.platform === 'youtube';
+        const platIcon = isYT ? '<span class="platform-icon">▶️</span>' : '';
+        const viewsVal = isYT ? fmt(p.view_count) : fmt(ins.views);
+        const viewsClass = (!isYT && phase === 1) ? 'loading' : '';
 
         return `<tr>
           <td class="thumb">${thumb ? `<img src="${thumb}" onerror="this.style.display='none'"/>` : '<div class="no-thumb">📷</div>'}</td>
-          <td><span class="profile-dot" style="background:${color}"></span>${p.account_label || '—'}</td>
+          <td>${platIcon}<span class="profile-dot" style="background:${color}"></span>${p.account_label || '—'}</td>
           <td style="white-space:nowrap">${fmtDate(p.timestamp)}</td>
           <td><span class="badge ${typeClass}">${typeLabel}</span></td>
           <td class="caption" title="${(p.caption||'').replace(/"/g,'&quot;')}">${p.caption || '—'}</td>
           <td class="metric">${fmt(p.like_count)}</td>
           <td class="metric">${fmt(p.comments_count)}</td>
-          <td class="metric ${phase===1?'loading':''}">${fmt(ins.views)}</td>
-          <td class="metric ${phase===1?'loading':''}">${fmt(ins.saved)}</td>
-          <td class="metric ${phase===1?'loading':''}">${fmt(ins.shares)}</td>
-          <td class="metric ${phase===1?'loading':''}">${fmt(ins.follows)}</td>
-          <td class="metric eng-rate">${engRate ? engRate+'%' : (phase===1?'…':'—')}</td>
-          <td>${phase===1 ? '' : getPerfBadge(p, avgEng)}</td>
+          <td class="metric ${viewsClass}">${viewsVal}</td>
+          <td class="metric ${(!isYT && phase===1)?'loading':''}">${isYT ? '—' : fmt(ins.saved)}</td>
+          <td class="metric ${(!isYT && phase===1)?'loading':''}">${isYT ? '—' : fmt(ins.shares)}</td>
+          <td class="metric ${(!isYT && phase===1)?'loading':''}">${isYT ? '—' : fmt(ins.follows)}</td>
+          <td class="metric eng-rate">${engRate ? engRate+'%' : ((!isYT && phase===1)?'…':'—')}</td>
+          <td>${(!isYT && phase===1) ? '' : getPerfBadge(p, avgEng)}</td>
           <td><a class="post-link" href="${p.permalink}" target="_blank">↗</a></td>
         </tr>`;
       }).join('');
@@ -492,14 +513,14 @@
 
     // Top 5 posts do período filtrado por visualizações, salvamentos e engajamento
     function renderTopPosts(posts) {
-      const byViews = posts.filter(p => insights[p.id]?.views)
-        .sort((a, b) => insights[b.id].views - insights[a.id].views).slice(0, 5);
+      const byViews = posts.filter(p => getPostViews(p) > 0)
+        .sort((a, b) => getPostViews(b) - getPostViews(a)).slice(0, 5);
       const bySaved = posts.filter(p => insights[p.id]?.saved)
         .sort((a, b) => insights[b.id].saved - insights[a.id].saved).slice(0, 5);
       const byEng = posts.filter(p => getEngRate(p))
         .sort((a, b) => parseFloat(getEngRate(b)) - parseFloat(getEngRate(a))).slice(0, 5);
 
-      renderTopList('top-views-list', byViews, p => `${fmt(insights[p.id].views)} visualizações`);
+      renderTopList('top-views-list', byViews, p => `${fmt(getPostViews(p))} visualizações`);
       renderTopList('top-saved-list', bySaved, p => `${fmt(insights[p.id].saved)} salvamentos`);
       renderTopList('top-eng-list', byEng, p => `${getEngRate(p)}% engajamento`);
     }
@@ -646,12 +667,27 @@
       window.print();
     }
 
-    // Fase 1: carrega posts básicos
+    // Fase 1: carrega posts Instagram + YouTube em paralelo
     async function loadPosts() {
       try {
-        const res = await fetch('/api/posts');
-        if (!res.ok) throw new Error(await res.text());
-        allPosts = await res.json();
+        const [igRes, ytRes] = await Promise.all([
+          fetch('/api/posts'),
+          fetch('/api/youtube-posts'),
+        ]);
+        if (!igRes.ok) throw new Error(await igRes.text());
+        const igPosts = await igRes.json();
+        const ytPosts = ytRes.ok ? await ytRes.json() : [];
+
+        // YouTube: marca plataforma e pré-popula insights (já tem view_count embutido)
+        ytPosts.forEach(p => {
+          p.platform = 'youtube';
+          insights[p.id] = { views: p.view_count || 0, saved: 0, shares: 0, follows: 0, total_interactions: (p.like_count||0) + (p.comments_count||0) };
+        });
+        igPosts.forEach(p => { if (!p.platform) p.platform = 'instagram'; });
+
+        allPosts = [...igPosts, ...ytPosts]
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
         phase = 1;
         document.getElementById('phase-indicator').textContent = '📥 Métricas básicas carregadas';
         document.getElementById('phase-indicator').className = 'phase-badge loading';
@@ -664,9 +700,9 @@
       }
     }
 
-    // Fase 2: enriquece com insights de todos os posts carregados, em lotes de 10
+    // Fase 2: enriquece com insights de posts Instagram, em lotes de 10
     async function loadInsights() {
-      const allIds = allPosts.map(p => p.id);
+      const allIds = allPosts.filter(p => p.platform !== 'youtube').map(p => p.id);
       if (allIds.length === 0) return;
 
       const chunkSize = 10;
@@ -710,6 +746,7 @@
     // Filtros
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('type-filter').addEventListener('change', renderTable);
+    document.getElementById('platform-filter').addEventListener('change', renderTable);
     document.getElementById('date-start').addEventListener('change', renderTable);
     document.getElementById('date-end').addEventListener('change', renderTable);
 
