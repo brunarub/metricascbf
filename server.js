@@ -150,20 +150,22 @@ app.get('/api/youtube-posts', async (req, res) => {
   }
 });
 
-// GET /api/account-insights?since=YYYY-MM-DD&until=YYYY-MM-DD
-// Retorna impressões reais da conta (Feed + Reels + Stories) para o período.
-// since/until são datas no formato YYYY-MM-DD (convertidas para Unix aqui).
+// GET /api/account-insights?since=YYYY-MM-DD&until=YYYY-MM-DD[&account=label]
+// Retorna impressões reais da conta Instagram (Feed + Reels + Stories) para o período.
+// account (opcional): filtra por label específico (ex: brasileiras)
 app.get('/api/account-insights', async (req, res) => {
   try {
-    const { since, until } = req.query;
+    const { since, until, account } = req.query;
     if (!since || !until) {
       return res.status(400).json({ error: 'since e until são obrigatórios (YYYY-MM-DD)' });
     }
-    // Converte para Unix timestamp (segundos) — since = início do dia, until = fim do dia
     const sinceTs = Math.floor(new Date(since + 'T00:00:00-03:00').getTime() / 1000);
     const untilTs = Math.floor(new Date(until + 'T23:59:59-03:00').getTime() / 1000);
 
-    const accounts = getAccounts();
+    let accounts = getAccounts();
+    if (account && account !== 'todos') {
+      accounts = accounts.filter(a => a.label === account);
+    }
     const byAccount = {};
     let total = 0;
 

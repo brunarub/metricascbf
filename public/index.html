@@ -469,11 +469,13 @@
       renderComparison('kpi-eng-cmp', sums.eng, prevSums.eng);
     }
 
-    // Busca impressões reais da conta (inclui Stories + todos os formatos) para o período selecionado.
+    // Busca impressões reais da conta (Instagram inclui Stories; + views YouTube do período).
+    // Respeita aba ativa e filtro de plataforma.
     let accountInsightsFetchId = 0;
     async function fetchAccountImpressions() {
       const since = document.getElementById('date-start').value;
       const until = document.getElementById('date-end').value;
+      const platformFilter = document.getElementById('platform-filter').value;
       const el = document.getElementById('kpi-impressions');
       const sub = document.getElementById('kpi-impressions-sub');
 
@@ -488,22 +490,43 @@
       const fetchId = ++accountInsightsFetchId;
 
       try {
-        const res = await fetch(`/api/account-insights?since=${since}&until=${until}`);
-        if (fetchId !== accountInsightsFetchId) return; // resposta obsoleta
-        const data = await res.json();
-        if (data.error) {
-          el.textContent = '—';
-          sub.textContent = data.error.substring(0, 60);
-          return;
+        // Views YouTube: soma view_count dos vídeos filtrados publicados no período
+        let ytViews = 0;
+        if (platformFilter !== 'instagram') {
+          const filtered = getFilteredPosts().filter(p => p.platform === 'youtube');
+          ytViews = filtered.reduce((s, p) => s + (p.view_count || 0), 0);
         }
-        el.textContent = fmt(data.total);
-        // Detalha por conta se houver mais de uma
-        const entries = Object.entries(data.byAccount).filter(([, v]) => v !== null);
-        if (entries.length > 1) {
-          sub.textContent = entries.map(([label, v]) => `${label}: ${fmt(v)}`).join(' · ');
-        } else {
-          sub.textContent = 'Feed + Reels + Stories';
+
+        // Impressões Instagram (conta com Stories) — respeitando aba ativa
+        let igTotal = 0;
+        const igByAccount = {};
+        if (platformFilter !== 'youtube') {
+          const accountParam = activeTab !== 'todos' ? `&account=${activeTab}` : '';
+          const res = await fetch(`/api/account-insights?since=${since}&until=${until}${accountParam}`);
+          if (fetchId !== accountInsightsFetchId) return;
+          const data = await res.json();
+          if (!data.error) {
+            igTotal = data.total || 0;
+            Object.assign(igByAccount, data.byAccount);
+          }
         }
+
+        if (fetchId !== accountInsightsFetchId) return;
+
+        const grandTotal = igTotal + ytViews;
+        el.textContent = fmt(grandTotal);
+
+        // Legenda
+        const parts = [];
+        const igEntries = Object.entries(igByAccount).filter(([, v]) => v !== null && v > 0);
+        if (igEntries.length > 1) {
+          igEntries.forEach(([label, v]) => parts.push(`${label}: ${fmt(v)}`));
+        } else if (igTotal > 0) {
+          parts.push(`Instagram: ${fmt(igTotal)}`);
+        }
+        if (ytViews > 0) parts.push(`YouTube: ${fmt(ytViews)}`);
+        sub.textContent = parts.length ? parts.join(' · ') : 'Feed + Reels + Stories + YouTube';
+
       } catch (e) {
         if (fetchId !== accountInsightsFetchId) return;
         el.textContent = '—';
