@@ -522,66 +522,11 @@ app.get('/api/escala', async (req, res) => {
   }
 });
 
-// Alerta de sobrecarga (boot + a cada 24h)
-const alertasEnviados = new Set();
-async function verificarSobrecarga() {
-  try {
-    const dadosEscala = await getEscalaSemana();
-    const jogos = await getCalendario().catch(() => []);
-    // Agrupa jogos por data DD/MM
-    const jogosAgrupados = {};
-    for (const j of jogos) {
-      const chave = j.data || j.date || '';
-      if (!jogosAgrupados[chave]) jogosAgrupados[chave] = [];
-      jogosAgrupados[chave].push(j);
-    }
-    const alertas = detectarSobrecarga(dadosEscala.diasPorData, jogosAgrupados);
-    const novos = alertas.filter(a => !alertasEnviados.has(a.data));
-    if (novos.length > 0) {
-      await enviarAlertaSobrecarga(novos);
-      novos.forEach(a => alertasEnviados.add(a.data));
-    }
-  } catch (err) {
-    console.error('Erro verificarSobrecarga:', err.message);
-  }
-}
-
-// Email semanal toda sexta 9h Brasília (12h UTC)
-function agendarEmailSexta() {
-  const agora = new Date();
-  const proximaSexta = new Date(agora);
-  proximaSexta.setUTCHours(12, 0, 0, 0);
-  const diaSemana = proximaSexta.getUTCDay();
-
-  // Calcula quantos dias faltam para a próxima sexta-feira
-  if (diaSemana === 5) {
-    // Hoje é sexta: se já passou das 12h UTC, agenda para próxima semana
-    if (agora.getUTCHours() >= 12) {
-      proximaSexta.setUTCDate(proximaSexta.getUTCDate() + 7);
-    }
-    // Se ainda não chegou às 12h UTC, dispara hoje (proximaSexta já está certo)
-  } else {
-    const diasAte = (5 - diaSemana + 7) % 7;
-    proximaSexta.setUTCDate(proximaSexta.getUTCDate() + diasAte);
-  }
-
-  const ms = proximaSexta - agora;
-  // Segurança: nunca agenda com ms <= 0
-  if (ms <= 0) {
-    proximaSexta.setUTCDate(proximaSexta.getUTCDate() + 7);
-  }
-
-  console.log(`📅 Próximo resumo semanal: ${proximaSexta.toISOString()}`);
-  setTimeout(async () => {
-    try {
-      const { escalaFiltrada } = await getEscalaProxDias(9);
-      await enviarResumoSemanal(escalaFiltrada);
-    } catch (err) {
-      console.error('Erro email semanal:', err.message);
-    }
-    agendarEmailSexta();
-  }, proximaSexta - new Date()); // recalcula ms no momento do agendamento
-}
+// Alerta de sobrecarga e resumo semanal agora rodam como Render Cron Jobs
+// separados (src/alerta-sobrecarga-cron.js e src/resumo-semanal-cron.js, ver
+// render.yaml) em vez de setTimeout/setInterval aqui — o serviço web no plano
+// free do Render dorme após inatividade e perde timers agendados para o futuro,
+// o que fazia o email semanal simplesmente não ser enviado.
 
 app.listen(PORT, () => {
   console.log(`\n🚀 insta-dash rodando em http://localhost:${PORT}`);
@@ -597,8 +542,4 @@ app.listen(PORT, () => {
     })
     .catch(err => console.error('Erro ao pré-carregar calendário:', err.message));
 
-  // Escala + emails
-  setTimeout(verificarSobrecarga, 5000);
-  setInterval(verificarSobrecarga, 24 * 60 * 60 * 1000);
-  agendarEmailSexta();
 });

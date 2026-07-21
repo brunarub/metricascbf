@@ -61,6 +61,7 @@
     .charts-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 28px; }
     .chart-card { background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; padding: 16px; }
     .chart-card h3 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); margin-bottom: 12px; }
+    .chart-empty { text-align: center; color: var(--navy-soft); font-size: 0.85rem; padding: 40px 0; }
 
     /* Badges de performance */
     .badge-perf-top { background: #E6F4EA; color: #1e7e34; }
@@ -185,10 +186,12 @@
     <div class="charts-section">
       <div class="chart-card">
         <h3>Evolução Semanal</h3>
+        <div id="evolution-chart-empty" class="chart-empty" style="display:none;">Sem dados suficientes para este período.</div>
         <canvas id="evolution-chart" height="220"></canvas>
       </div>
       <div class="chart-card">
         <h3>Performance por Formato</h3>
+        <div id="format-chart-empty" class="chart-empty" style="display:none;">Sem dados suficientes para este período.</div>
         <canvas id="format-chart" height="220"></canvas>
       </div>
     </div>
@@ -251,7 +254,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/vendor/chart.umd.min.js"></script>
   <script>
     let allPosts = [];
     let insights = {};
@@ -598,7 +601,13 @@
     let evolutionChart = null;
     function renderEvolutionChart(posts) {
       const canvas = document.getElementById('evolution-chart');
-      if (!window.Chart || !canvas) return;
+      const emptyMsg = document.getElementById('evolution-chart-empty');
+      if (!canvas) return;
+      if (!window.Chart) {
+        if (emptyMsg) { emptyMsg.textContent = 'Gráfico indisponível.'; emptyMsg.style.display = 'block'; }
+        canvas.style.display = 'none';
+        return;
+      }
 
       const weekMap = {};
       posts.forEach(p => {
@@ -611,7 +620,13 @@
 
       const weeks = Object.keys(weekMap).sort();
       if (evolutionChart) { evolutionChart.destroy(); evolutionChart = null; }
-      if (weeks.length === 0) return;
+      if (weeks.length === 0) {
+        if (emptyMsg) { emptyMsg.textContent = 'Sem dados suficientes para este período.'; emptyMsg.style.display = 'block'; }
+        canvas.style.display = 'none';
+        return;
+      }
+      if (emptyMsg) emptyMsg.style.display = 'none';
+      canvas.style.display = 'block';
 
       evolutionChart = new Chart(canvas, {
         type: 'line',
@@ -633,7 +648,13 @@
     let formatChart = null;
     function renderFormatChart(posts) {
       const canvas = document.getElementById('format-chart');
-      if (!window.Chart || !canvas) return;
+      const emptyMsg = document.getElementById('format-chart-empty');
+      if (!canvas) return;
+      if (!window.Chart) {
+        if (emptyMsg) { emptyMsg.textContent = 'Gráfico indisponível.'; emptyMsg.style.display = 'block'; }
+        canvas.style.display = 'none';
+        return;
+      }
 
       const buckets = {};
       posts.forEach(p => {
@@ -647,7 +668,13 @@
 
       const types = Object.keys(buckets);
       if (formatChart) { formatChart.destroy(); formatChart = null; }
-      if (types.length === 0) return;
+      if (types.length === 0) {
+        if (emptyMsg) { emptyMsg.textContent = 'Sem dados suficientes para este período.'; emptyMsg.style.display = 'block'; }
+        canvas.style.display = 'none';
+        return;
+      }
+      if (emptyMsg) emptyMsg.style.display = 'none';
+      canvas.style.display = 'block';
 
       formatChart = new Chart(canvas, {
         type: 'bar',

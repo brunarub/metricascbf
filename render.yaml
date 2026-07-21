@@ -55,3 +55,35 @@ services:
         sync: false
       - key: GOOGLE_PRIVATE_KEY
         sync: false
+
+  - type: cron
+    name: insta-dash-resumo-semanal
+    env: node
+    buildCommand: npm install
+    schedule: "0 12 * * 5" # sexta-feira, 12h UTC = 9h em Brasília
+    startCommand: npm run resumo-semanal-cron
+    envVars:
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER
+        sync: false
+
+  - type: cron
+    name: insta-dash-alerta-sobrecarga
+    env: node
+    buildCommand: npm install
+    schedule: "0 9 * * *" # todos os dias, 9h UTC = 6h em Brasília
+    startCommand: npm run alerta-sobrecarga-cron
+    envVars:
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER
+        sync: false
