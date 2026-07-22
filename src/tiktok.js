@@ -38,7 +38,7 @@ function writeTokensLocal(tokens) {
 function getAuthUrl(accountLabel) {
   const params = new URLSearchParams({
     client_key:    CLIENT_KEY,
-    scope:         'user.info.basic,user.info.stats,user.info.profile,video.list',
+    scope:         'user.info.basic,video.list',
     response_type: 'code',
     redirect_uri:  REDIRECT_URI,
     state:         accountLabel, // usamos o state para saber qual conta está sendo conectada
