@@ -69,20 +69,38 @@ async function refreshToken(refreshTokenStr) {
   return res.data;
 }
 
-// Busca vídeos de uma conta usando o access_token
-async function fetchTikTokVideos(accessToken, maxCount = 20) {
+// Busca vídeos de uma conta usando o access_token, paginando conforme necessário.
+// limit = null busca TODO o histórico disponível da conta (segue os cursores até acabar,
+// igual já fazemos com o Instagram em src/instagram.js). A API do TikTok limita cada
+// página a no máximo 20 vídeos (max_count), então paginamos com cursor/has_more.
+async function fetchTikTokVideos(accessToken, limit = null) {
   const fields = 'id,title,cover_image_url,share_url,video_description,duration,height,width,title,embed_link,like_count,comment_count,share_count,view_count,create_time';
-  const res = await axios.post('https://open.tiktokapis.com/v2/video/list/',
-    { max_count: maxCount },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      params: { fields },
-    }
-  );
-  return res.data?.data?.videos || [];
+  const url = 'https://open.tiktokapis.com/v2/video/list/';
+  const pageSize = 20; // máximo permitido por página pela API do TikTok
+
+  let videos = [];
+  let cursor = 0;
+  let hasMore = true;
+
+  while (hasMore && (!limit || videos.length < limit)) {
+    const res = await axios.post(url,
+      { max_count: pageSize, cursor },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        params: { fields },
+      }
+    );
+    const page = res.data?.data?.videos || [];
+    if (page.length === 0) break;
+    videos = videos.concat(page);
+    hasMore = !!res.data?.data?.has_more;
+    cursor = res.data?.data?.cursor || cursor;
+  }
+
+  return limit ? videos.slice(0, limit) : videos;
 }
 
 // Retorna posts normalizados de todas as contas TikTok conectadas
