@@ -54,7 +54,7 @@ async function exchangeCode(code) {
     code,
     grant_type:    'authorization_code',
     redirect_uri:  REDIRECT_URI,
-  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 });
   return res.data;
 }
 
@@ -65,7 +65,7 @@ async function refreshToken(refreshTokenStr) {
     client_secret:  CLIENT_SECRET,
     grant_type:     'refresh_token',
     refresh_token:  refreshTokenStr,
-  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 });
   return res.data;
 }
 
@@ -96,6 +96,7 @@ async function fetchTikTokVideos(accessToken, limit = null) {
               'Content-Type': 'application/json',
             },
             params: { fields },
+            timeout: 15000,
           }
         );
         break;
