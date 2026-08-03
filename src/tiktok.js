@@ -69,6 +69,8 @@ async function refreshToken(refreshTokenStr) {
   return res.data;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Busca vídeos de uma conta usando o access_token, paginando conforme necessário.
 // limit = null busca TODO o histórico disponível da conta (segue os cursores até acabar,
 // igual já fazemos com o Instagram em src/instagram.js). A API do TikTok limita cada
@@ -83,21 +85,35 @@ async function fetchTikTokVideos(accessToken, limit = null) {
   let hasMore = true;
 
   while (hasMore && (!limit || videos.length < limit)) {
-    const res = await axios.post(url,
-      { max_count: pageSize, cursor },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        params: { fields },
+    let res;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        res = await axios.post(url,
+          { max_count: pageSize, cursor },
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            params: { fields },
+          }
+        );
+        break;
+      } catch (err) {
+        const status = err.response?.status;
+        if (attempt < 3 && (status === 429 || status >= 500)) {
+          await sleep(1000 * attempt);
+        } else {
+          throw err;
+        }
       }
-    );
+    }
     const page = res.data?.data?.videos || [];
     if (page.length === 0) break;
     videos = videos.concat(page);
     hasMore = !!res.data?.data?.has_more;
     cursor = res.data?.data?.cursor || cursor;
+    if (hasMore) await sleep(300);
   }
 
   return limit ? videos.slice(0, limit) : videos;
@@ -108,8 +124,12 @@ async function getTikTokPosts() {
   const tokens = readTokens();
   const allPosts = [];
 
-  for (const [accountLabel, tokenData] of Object.entries(tokens)) {
+  const entries = Object.entries(tokens);
+  for (let i = 0; i < entries.length; i++) {
+    const [accountLabel, tokenData] = entries[i];
     if (!tokenData?.access_token) continue;
+
+    if (i > 0) await sleep(500);
 
     try {
       let { access_token, refresh_token } = tokenData;
@@ -153,7 +173,7 @@ async function getTikTokPosts() {
         });
       }
     } catch (err) {
-      console.error(`Erro TikTok ${accountLabel}:`, err.response?.data || err.message);
+      console.error(`Erro TikTok ${accountLabel} (status ${err.response?.status}):`, err.response?.data || err.message);
     }
   }
 
