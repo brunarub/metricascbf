@@ -290,6 +290,89 @@ app.get('/api/account-insights', async (req, res) => {
   }
 });
 
+// GET /api/resumo?since=YYYY-MM-DD&until=YYYY-MM-DD
+// Retorna views + volumetria (contagem de posts) por conta e por plataforma,
+// já filtrado pro período pedido. Pensado pra alimentar relatórios e
+// automações sem precisar paginar/filtrar manualmente no client.
+app.get('/api/resumo', async (req, res) => {
+  try {
+    const { since, until } = req.query;
+    if (!since || !until) {
+      return res.status(400).json({ error: 'since e until são obrigatórios (YYYY-MM-DD)' });
+    }
+
+    const sinceMs = new Date(since + 'T00:00:00-03:00').getTime();
+    const untilMs = new Date(until + 'T23:59:59-03:00').getTime();
+    const dentroDoPeriodo = (timestamp) => {
+      const t = new Date(timestamp).getTime();
+      return t >= sinceMs && t <= untilMs;
+    };
+
+    const resumo = {}; // { [accountLabel]: { instagram: {views, posts}, tiktok: {...}, youtube: {...} } }
+    function registrar(label, plataforma, views, posts) {
+      if (!resumo[label]) resumo[label] = {};
+      resumo[label][plataforma] = { views, posts };
+    }
+
+    // ── Instagram: views via Insights oficial (period-accurate), posts contados por data ──
+    const igAccounts = getAccounts();
+    for (const account of igAccounts) {
+      try {
+        const sinceTs = Math.floor(sinceMs / 1000);
+        const untilTs = Math.floor(untilMs / 1000);
+        const views = await getAccountInsights(account.id, sinceTs, untilTs);
+        const todosPosts = await getPostsBasic(account.id, null); // histórico completo
+        const posts = todosPosts.filter(p => dentroDoPeriodo(p.timestamp)).length;
+        registrar(account.label, 'instagram', views, posts);
+      } catch (err) {
+        console.error(`Erro resumo IG ${account.label}:`, err.response?.data?.error || err.message);
+        registrar(account.label, 'instagram', null, null);
+      }
+    }
+
+    // ── TikTok: getTikTokPosts() já traz tudo, só filtrar e somar ──
+    try {
+      const ttPosts = await getTikTokPosts();
+      const porConta = {};
+      for (const p of ttPosts) {
+        if (!dentroDoPeriodo(p.timestamp)) continue;
+        if (!porConta[p.account_label]) porConta[p.account_label] = { views: 0, posts: 0 };
+        porConta[p.account_label].views += p.view_count;
+        porConta[p.account_label].posts += 1;
+      }
+      for (const [label, v] of Object.entries(porConta)) {
+        registrar(label, 'tiktok', v.views, v.posts);
+      }
+    } catch (err) {
+      console.error('Erro resumo TikTok:', err.message);
+    }
+
+    // ── YouTube: getYouTubePosts(300) busca até 300 vídeos por canal, filtra e soma ──
+    // Nota: 300 é uma margem generosa pra garantir que cobre qualquer período razoável
+    // de relatório sem deixar de trazer vídeos antigos o suficiente.
+    try {
+      const ytPosts = await getYouTubePosts(300);
+      const porConta = {};
+      for (const p of ytPosts) {
+        if (!dentroDoPeriodo(p.timestamp)) continue;
+        if (!porConta[p.account_label]) porConta[p.account_label] = { views: 0, posts: 0 };
+        porConta[p.account_label].views += Number(p.view_count) || 0;
+        porConta[p.account_label].posts += 1;
+      }
+      for (const [label, v] of Object.entries(porConta)) {
+        registrar(label, 'youtube', v.views, v.posts);
+      }
+    } catch (err) {
+      console.error('Erro resumo YouTube:', err.message);
+    }
+
+    res.json({ since, until, contas: resumo });
+  } catch (err) {
+    console.error('Erro /api/resumo:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/debug-account-insights?since=YYYY-MM-DD&until=YYYY-MM-DD
 // Retorna a resposta bruta da Graph API — útil para diagnosticar o formato.
 app.get('/api/debug-account-insights', async (req, res) => {
