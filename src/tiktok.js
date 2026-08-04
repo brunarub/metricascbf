@@ -34,6 +34,35 @@ function writeTokensLocal(tokens) {
   } catch (_) {}
 }
 
+// Salva os tokens em 3 lugares: arquivo local, memória do processo (process.env,
+// já vale sem precisar de restart) e a env var TIKTOK_TOKENS no Render via API
+// (assim sobrevive ao próximo deploy). Sem RENDER_API_KEY/RENDER_SERVICE_ID
+// configuradas, pula só o passo do Render e mantém o comportamento atual.
+async function persistTokens(tokens) {
+  writeTokensLocal(tokens);
+  process.env.TIKTOK_TOKENS = JSON.stringify(tokens);
+
+  const renderApiKey    = process.env.RENDER_API_KEY;
+  const renderServiceId = process.env.RENDER_SERVICE_ID;
+  if (!renderApiKey || !renderServiceId) return;
+
+  try {
+    await axios.put(
+      `https://api.render.com/v1/services/${renderServiceId}/env-vars/TIKTOK_TOKENS`,
+      { value: JSON.stringify(tokens) },
+      {
+        headers: {
+          Authorization: `Bearer ${renderApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
+  } catch (err) {
+    console.error('Erro ao persistir TIKTOK_TOKENS no Render:', err.response?.data || err.message);
+  }
+}
+
 // URL de autorização para redirecionar o usuário ao TikTok
 function getAuthUrl(accountLabel) {
   const params = new URLSearchParams({
@@ -148,7 +177,7 @@ async function getTikTokPosts() {
           // Persiste token renovado
           const updated = readTokens();
           updated[accountLabel] = { ...tokenData, access_token, refresh_token };
-          writeTokensLocal(updated);
+          await persistTokens(updated);
           videos = await fetchTikTokVideos(access_token);
         } else {
           throw err;
@@ -182,4 +211,4 @@ async function getTikTokPosts() {
   return allPosts;
 }
 
-module.exports = { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal };
+module.exports = { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal, persistTokens };
