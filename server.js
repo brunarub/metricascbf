@@ -321,7 +321,7 @@ app.get('/api/resumo', async (req, res) => {
         const sinceTs = Math.floor(sinceMs / 1000);
         const untilTs = Math.floor(untilMs / 1000);
         const views = await getAccountInsights(account.id, sinceTs, untilTs);
-        const todosPosts = await getPostsBasic(account.id, null); // histórico completo
+        const todosPosts = await getPostsBasic(account.id, 300); // últimos 300 posts é margem suficiente pra qualquer período de relatório
         const posts = todosPosts.filter(p => dentroDoPeriodo(p.timestamp)).length;
         registrar(account.label, 'instagram', views, posts);
       } catch (err) {
