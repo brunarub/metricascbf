@@ -261,7 +261,7 @@
 
     <div class="charts-section">
       <div class="chart-card">
-        <h3>Evolução Semanal</h3>
+        <h3 id="evolution-chart-title">Evolução Semanal</h3>
         <div id="evolution-chart-empty" class="chart-empty" style="display:none;">Sem dados suficientes para este período.</div>
         <canvas id="evolution-chart" height="220"></canvas>
       </div>
@@ -308,20 +308,24 @@
     let sortDir = -1;
     let phase = 1;
 
+    // Período padrão: últimos 7 dias, sempre — assim o Comparativo por Rede e os
+    // gráficos já vêm preenchidos sem precisar de nenhum clique. Dá pra trocar ou
+    // limpar (ícone "Limpar datas") a qualquer momento.
+    {
+      const end = new Date();
+      const start = new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
+      document.getElementById('date-end').value = end.toISOString().substring(0, 10);
+      document.getElementById('date-start').value = start.toISOString().substring(0, 10);
+    }
+
     // Modo cliente (?cliente=1): esconde ferramentas internas (busca, filtro de tipo,
-    // tabela detalhada, exportar CSV) e já preenche o período com os últimos 7 dias,
-    // pra a comparação com o período anterior aparecer sem precisar configurar nada.
+    // tabela detalhada, exportar CSV).
     if (new URLSearchParams(location.search).get('cliente') === '1') {
       document.body.classList.add('client-mode');
       const badge = document.createElement('span');
       badge.className = 'client-badge';
       badge.textContent = 'Modo Cliente';
       document.querySelector('header').appendChild(badge);
-
-      const end = new Date();
-      const start = new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
-      document.getElementById('date-end').value = end.toISOString().substring(0, 10);
-      document.getElementById('date-start').value = start.toISOString().substring(0, 10);
     }
 
     const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels', SHORTS: 'Shorts', TIKTOK: 'TikTok' };
@@ -736,6 +740,7 @@
     function renderEvolutionChart(posts) {
       const canvas = document.getElementById('evolution-chart');
       const emptyMsg = document.getElementById('evolution-chart-empty');
+      const title = document.getElementById('evolution-chart-title');
       if (!canvas) return;
       if (!window.Chart) {
         if (emptyMsg) { emptyMsg.textContent = 'Gráfico indisponível.'; emptyMsg.style.display = 'block'; }
@@ -743,18 +748,31 @@
         return;
       }
 
-      const weekMap = {};
+      // Com um período curto selecionado (até 21 dias), agrupar por dia mostra a
+      // evolução de verdade — por semana, um filtro de poucos dias vira só 1-2 pontos
+      // e o gráfico fica sem sentido. Sem período definido (histórico completo),
+      // mantém agrupamento semanal.
+      const dateStart = document.getElementById('date-start').value;
+      const dateEnd = document.getElementById('date-end').value;
+      let byDay = false;
+      if (dateStart && dateEnd) {
+        const spanDays = (new Date(dateEnd + 'T00:00:00Z') - new Date(dateStart + 'T00:00:00Z')) / (1000 * 60 * 60 * 24);
+        byDay = spanDays <= 21;
+      }
+      if (title) title.textContent = byDay ? 'Evolução Diária' : 'Evolução Semanal';
+
+      const bucketMap = {};
       posts.forEach(p => {
         if (!p.timestamp) return;
-        const key = getWeekStart(p.timestamp).toISOString().substring(0, 10);
-        if (!weekMap[key]) weekMap[key] = { views: 0, likes: 0 };
-        weekMap[key].views += insights[p.id]?.views || 0;
-        weekMap[key].likes += p.like_count || 0;
+        const key = byDay ? p.timestamp.substring(0, 10) : getWeekStart(p.timestamp).toISOString().substring(0, 10);
+        if (!bucketMap[key]) bucketMap[key] = { views: 0, likes: 0 };
+        bucketMap[key].views += insights[p.id]?.views || 0;
+        bucketMap[key].likes += p.like_count || 0;
       });
 
-      const weeks = Object.keys(weekMap).sort();
+      const buckets = Object.keys(bucketMap).sort();
       if (evolutionChart) { evolutionChart.destroy(); evolutionChart = null; }
-      if (weeks.length === 0) {
+      if (buckets.length === 0) {
         if (emptyMsg) { emptyMsg.textContent = 'Sem dados suficientes para este período.'; emptyMsg.style.display = 'block'; }
         canvas.style.display = 'none';
         return;
@@ -765,10 +783,10 @@
       evolutionChart = new Chart(canvas, {
         type: 'line',
         data: {
-          labels: weeks.map(fmtWeekLabel),
+          labels: buckets.map(fmtWeekLabel),
           datasets: [
-            { label: 'Visualizações', data: weeks.map(w => weekMap[w].views), borderColor: '#007693', backgroundColor: 'rgba(0,180,216,0.15)', tension: 0.3, fill: true },
-            { label: 'Curtidas', data: weeks.map(w => weekMap[w].likes), borderColor: '#0A2342', backgroundColor: 'rgba(10,35,66,0.08)', tension: 0.3, fill: true },
+            { label: 'Visualizações', data: buckets.map(w => bucketMap[w].views), borderColor: '#007693', backgroundColor: 'rgba(0,180,216,0.15)', tension: 0.3, fill: true },
+            { label: 'Curtidas', data: buckets.map(w => bucketMap[w].likes), borderColor: '#0A2342', backgroundColor: 'rgba(10,35,66,0.08)', tension: 0.3, fill: true },
           ],
         },
         options: {
@@ -790,9 +808,13 @@
         return;
       }
 
+      // TikTok é conteúdo em vídeo, não um "formato" à parte — sem isso, ele aparecia
+      // como uma barra própria no meio de Foto/Vídeo/Carrossel/Reels/Shorts.
+      const FORMAT_MERGE = { TIKTOK: 'VIDEO' };
       const buckets = {};
       posts.forEach(p => {
-        const type = p.media_type || 'OUTRO';
+        const rawType = p.media_type || 'OUTRO';
+        const type = FORMAT_MERGE[rawType] || rawType;
         if (!buckets[type]) buckets[type] = { views: 0, count: 0, engSum: 0, engCount: 0 };
         buckets[type].views += insights[p.id]?.views || 0;
         buckets[type].count += 1;
