@@ -57,6 +57,22 @@
     .top-post-metric { font-size: 0.78rem; font-weight: 800; color: var(--primary-ink); }
     .top-empty { font-size: 0.8rem; color: var(--navy-soft); font-weight: 600; }
 
+    /* Comparativo por Rede */
+    .platform-cmp-section { margin-bottom: 28px; }
+    .platform-cmp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; overflow: hidden; }
+    .platform-cmp-table th { background: var(--navy); color: #fff; text-align: left; padding: 10px 14px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .04em; }
+    .platform-cmp-table td { padding: 10px 14px; border-top: 1px solid var(--navy-border); }
+    .platform-cmp-table td.metric { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .platform-cmp-empty { padding: 16px; text-align: center; color: var(--navy-soft); font-size: 0.85rem; font-weight: 600; }
+
+    /* Modo cliente (?cliente=1) — esconde ferramentas internas, mantém só o que é relevante compartilhar */
+    body.client-mode #search,
+    body.client-mode #type-filter,
+    body.client-mode .table-wrap,
+    body.client-mode #btn-csv,
+    body.client-mode nav.main-nav a:not([href="/"]) { display: none !important; }
+    .client-badge { background: var(--primary); color: var(--navy); font-weight: 800; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .04em; padding: 4px 10px; border-radius: 10px; margin-left: 12px; }
+
     /* Gráficos */
     .charts-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 28px; }
     .chart-card { background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; padding: 16px; }
@@ -165,6 +181,18 @@
       <div class="kpi"><div class="kpi-label">Eng. Médio</div><div class="kpi-value" id="kpi-eng">—</div><div class="kpi-compare" id="kpi-eng-cmp"></div></div>
     </div>
 
+    <div class="platform-cmp-section">
+      <div class="section-title">📊 Comparativo por Rede <span style="font-size:0.7rem;font-weight:600;color:var(--navy-soft);text-transform:none;">(vs período anterior)</span></div>
+      <table class="platform-cmp-table" id="platform-cmp-table">
+        <thead>
+          <tr><th>Rede</th><th style="text-align:right">Posts</th><th style="text-align:right">Views</th><th style="text-align:right">Var. Views</th></tr>
+        </thead>
+        <tbody id="platform-cmp-body">
+          <tr><td colspan="4" class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <div class="top-posts-section">
       <div class="section-title">🏆 Top Posts do Período</div>
       <div class="top-posts-grid">
@@ -179,6 +207,24 @@
         <div class="top-posts-col">
           <h3>Melhor Engajamento</h3>
           <div id="top-eng-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="worst-posts-section">
+      <div class="section-title">📉 Posts com Menor Desempenho</div>
+      <div class="top-posts-grid">
+        <div class="top-posts-col">
+          <h3>Menos Visualizações</h3>
+          <div id="worst-views-list"></div>
+        </div>
+        <div class="top-posts-col">
+          <h3>Menos Salvamentos</h3>
+          <div id="worst-saved-list"></div>
+        </div>
+        <div class="top-posts-col">
+          <h3>Pior Engajamento</h3>
+          <div id="worst-eng-list"></div>
         </div>
       </div>
     </div>
@@ -223,7 +269,7 @@
       <label>Até <input type="date" id="date-end" /></label>
       <button class="btn-export" id="date-clear" onclick="clearDateFilter()">✕ Limpar datas</button>
       <span id="phase-indicator" class="phase-badge loading">⏳ Carregando...</span>
-      <button class="btn-export" onclick="exportCSV()">⬇ CSV</button>
+      <button class="btn-export" id="btn-csv" onclick="exportCSV()">⬇ CSV</button>
       <button class="btn-export" onclick="generatePDF()">🖨 Gerar PDF</button>
     </div>
 
@@ -262,6 +308,22 @@
     let sortCol = 'timestamp';
     let sortDir = -1;
     let phase = 1;
+
+    // Modo cliente (?cliente=1): esconde ferramentas internas (busca, filtro de tipo,
+    // tabela detalhada, exportar CSV) e já preenche o período com os últimos 7 dias,
+    // pra a comparação com o período anterior aparecer sem precisar configurar nada.
+    if (new URLSearchParams(location.search).get('cliente') === '1') {
+      document.body.classList.add('client-mode');
+      const badge = document.createElement('span');
+      badge.className = 'client-badge';
+      badge.textContent = 'Modo Cliente';
+      document.querySelector('header').appendChild(badge);
+
+      const end = new Date();
+      const start = new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
+      document.getElementById('date-end').value = end.toISOString().substring(0, 10);
+      document.getElementById('date-start').value = start.toISOString().substring(0, 10);
+    }
 
     const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels', SHORTS: 'Shorts', TIKTOK: 'TikTok' };
     const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels', SHORTS: 'badge-shorts', TIKTOK: 'badge-tiktok' };
@@ -410,6 +472,8 @@
         tbody.innerHTML = '<tr><td colspan="14"><div class="state-msg"><div class="icon">🔍</div><p>Nenhum post encontrado.</p></div></td></tr>';
         updateKPIs([]);
         renderTopPosts([]);
+        renderWorstPosts([]);
+        renderPlatformComparison([]);
         renderChartsDebounced([]);
         return;
       }
@@ -450,6 +514,8 @@
 
       updateKPIs(posts);
       renderTopPosts(posts);
+      renderWorstPosts(posts);
+      renderPlatformComparison(posts);
       renderChartsDebounced(posts);
       fetchAccountImpressions();
     }
@@ -554,6 +620,75 @@
       renderTopList('top-views-list', byViews, p => `${fmt(getPostViews(p))} visualizações`);
       renderTopList('top-saved-list', bySaved, p => `${fmt(insights[p.id].saved)} salvamentos`);
       renderTopList('top-eng-list', byEng, p => `${getEngRate(p)}% engajamento`);
+    }
+
+    // Piores 5 posts do período filtrado por visualizações, salvamentos e engajamento —
+    // mesmo critério do Top Posts, só que ordenado do menor pro maior.
+    function renderWorstPosts(posts) {
+      const byViews = posts.filter(p => getPostViews(p) > 0)
+        .sort((a, b) => getPostViews(a) - getPostViews(b)).slice(0, 5);
+      const bySaved = posts.filter(p => insights[p.id]?.saved)
+        .sort((a, b) => insights[a.id].saved - insights[b.id].saved).slice(0, 5);
+      const byEng = posts.filter(p => getEngRate(p))
+        .sort((a, b) => parseFloat(getEngRate(a)) - parseFloat(getEngRate(b))).slice(0, 5);
+
+      renderTopList('worst-views-list', byViews, p => `${fmt(getPostViews(p))} visualizações`);
+      renderTopList('worst-saved-list', bySaved, p => `${fmt(insights[p.id].saved)} salvamentos`);
+      renderTopList('worst-eng-list', byEng, p => `${getEngRate(p)}% engajamento`);
+    }
+
+    // Agrupa os posts filtrados por rede (instagram/tiktok/youtube) e compara views+posts
+    // com o mesmo período imediatamente anterior — só fica disponível com filtro De/Até
+    // preenchido (é o que getPreviousPeriodPosts já exige).
+    function renderPlatformComparison(posts) {
+      const tbody = document.getElementById('platform-cmp-body');
+      const prevPosts = getPreviousPeriodPosts();
+      if (!prevPosts) {
+        tbody.innerHTML = '<tr><td colspan="4" class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</td></tr>';
+        return;
+      }
+
+      const PLATFORM_LABEL = { instagram: '📸 Instagram', tiktok: '🎵 TikTok', youtube: '▶️ YouTube' };
+
+      function grouped(list) {
+        const g = {};
+        list.forEach(p => {
+          const plat = p.platform || 'instagram';
+          if (!g[plat]) g[plat] = { posts: 0, views: 0 };
+          g[plat].posts += 1;
+          g[plat].views += getPostViews(p);
+        });
+        return g;
+      }
+
+      const curr = grouped(posts);
+      const prev = grouped(prevPosts);
+      const platforms = Object.keys(curr).length ? Object.keys(curr) : Object.keys(prev);
+
+      if (!platforms.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="platform-cmp-empty">Sem posts no período selecionado.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = platforms.map(plat => {
+        const c = curr[plat] || { posts: 0, views: 0 };
+        const p = prev[plat] || { posts: 0, views: 0 };
+        let varHtml = '—';
+        if (p.views > 0) {
+          const pct = ((c.views - p.views) / p.views) * 100;
+          const cls = pct >= 0 ? 'positive' : 'negative';
+          const arrow = pct >= 0 ? '▲' : '▼';
+          varHtml = `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+        } else if (c.views > 0) {
+          varHtml = '<span class="kpi-compare positive">▲ novo</span>';
+        }
+        return `<tr>
+          <td>${PLATFORM_LABEL[plat] || plat}</td>
+          <td class="metric">${fmt(c.posts)}</td>
+          <td class="metric">${fmt(c.views)}</td>
+          <td class="metric">${varHtml}</td>
+        </tr>`;
+      }).join('');
     }
 
     function renderTopList(elId, posts, metricFn) {
