@@ -57,13 +57,17 @@
     .top-post-metric { font-size: 0.78rem; font-weight: 800; color: var(--primary-ink); }
     .top-empty { font-size: 0.8rem; color: var(--navy-soft); font-weight: 600; }
 
-    /* Comparativo por Rede */
+    /* Comparativo por Rede — cards estilo slide, um por plataforma */
     .platform-cmp-section { margin-bottom: 28px; }
-    .platform-cmp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; overflow: hidden; }
-    .platform-cmp-table th { background: var(--navy); color: #fff; text-align: left; padding: 10px 14px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .04em; }
-    .platform-cmp-table td { padding: 10px 14px; border-top: 1px solid var(--navy-border); }
-    .platform-cmp-table td.metric { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-    .platform-cmp-empty { padding: 16px; text-align: center; color: var(--navy-soft); font-size: 0.85rem; font-weight: 600; }
+    .platform-cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .platform-cmp-card { background: var(--bg); border: 1px solid var(--navy-border); border-top: 4px solid var(--navy-border); border-radius: 10px; padding: 18px; }
+    .platform-cmp-card.plat-instagram { border-top-color: #C13584; }
+    .platform-cmp-card.plat-tiktok { border-top-color: #000000; }
+    .platform-cmp-card.plat-youtube { border-top-color: #FF0000; }
+    .platform-cmp-label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); margin-bottom: 10px; }
+    .platform-cmp-value { font-size: 1.9rem; font-weight: 800; color: var(--navy); }
+    .platform-cmp-sub { font-size: 0.75rem; color: var(--navy-soft); font-weight: 600; margin-top: 6px; }
+    .platform-cmp-empty { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--navy-soft); font-size: 0.85rem; font-weight: 600; background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; }
 
     /* Modo cliente (?cliente=1) — esconde ferramentas internas, mantém só o que é relevante compartilhar */
     body.client-mode #search,
@@ -171,6 +175,37 @@
   <div class="container">
     <div class="print-only" id="print-report-meta"></div>
 
+    <div class="tabs">
+      <button class="tab active" data-tab="todos">Todos</button>
+      <button class="tab" data-tab="copa_do_brasil">Copa do Brasil</button>
+      <button class="tab" data-tab="brasileirao">Brasileirão</button>
+      <button class="tab" data-tab="brasileiras">Brasileiras</button>
+    </div>
+
+    <div class="filters">
+      <input type="text" id="search" placeholder="Buscar legenda ou perfil..." />
+      <select id="platform-filter">
+        <option value="">Todas as plataformas</option>
+        <option value="instagram">Instagram</option>
+        <option value="youtube">YouTube</option>
+        <option value="tiktok">TikTok</option>
+      </select>
+      <select id="type-filter">
+        <option value="">Todos os tipos</option>
+        <option value="IMAGE">Foto</option>
+        <option value="VIDEO">Vídeo</option>
+        <option value="CAROUSEL_ALBUM">Carrossel</option>
+        <option value="REELS">Reels</option>
+        <option value="SHORTS">Shorts</option>
+      </select>
+      <label>De <input type="date" id="date-start" /></label>
+      <label>Até <input type="date" id="date-end" /></label>
+      <button class="btn-export" id="date-clear" onclick="clearDateFilter()">✕ Limpar datas</button>
+      <span id="phase-indicator" class="phase-badge loading">⏳ Carregando...</span>
+      <button class="btn-export" id="btn-csv" onclick="exportCSV()">⬇ CSV</button>
+      <button class="btn-export" onclick="generatePDF()">🖨 Gerar PDF</button>
+    </div>
+
     <div class="kpis">
       <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div><div class="kpi-compare" id="kpi-posts-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div><div class="kpi-compare" id="kpi-likes-cmp"></div></div>
@@ -183,14 +218,9 @@
 
     <div class="platform-cmp-section">
       <div class="section-title">📊 Comparativo por Rede <span style="font-size:0.7rem;font-weight:600;color:var(--navy-soft);text-transform:none;">(vs período anterior)</span></div>
-      <table class="platform-cmp-table" id="platform-cmp-table">
-        <thead>
-          <tr><th>Rede</th><th style="text-align:right">Posts</th><th style="text-align:right">Views</th><th style="text-align:right">Var. Views</th></tr>
-        </thead>
-        <tbody id="platform-cmp-body">
-          <tr><td colspan="4" class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</td></tr>
-        </tbody>
-      </table>
+      <div class="platform-cmp-grid" id="platform-cmp-grid">
+        <div class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</div>
+      </div>
     </div>
 
     <div class="top-posts-section">
@@ -240,37 +270,6 @@
         <div id="format-chart-empty" class="chart-empty" style="display:none;">Sem dados suficientes para este período.</div>
         <canvas id="format-chart" height="220"></canvas>
       </div>
-    </div>
-
-    <div class="tabs">
-      <button class="tab active" data-tab="todos">Todos</button>
-      <button class="tab" data-tab="copa_do_brasil">Copa do Brasil</button>
-      <button class="tab" data-tab="brasileirao">Brasileirão</button>
-      <button class="tab" data-tab="brasileiras">Brasileiras</button>
-    </div>
-
-    <div class="filters">
-      <input type="text" id="search" placeholder="Buscar legenda ou perfil..." />
-      <select id="platform-filter">
-        <option value="">Todas as plataformas</option>
-        <option value="instagram">Instagram</option>
-        <option value="youtube">YouTube</option>
-        <option value="tiktok">TikTok</option>
-      </select>
-      <select id="type-filter">
-        <option value="">Todos os tipos</option>
-        <option value="IMAGE">Foto</option>
-        <option value="VIDEO">Vídeo</option>
-        <option value="CAROUSEL_ALBUM">Carrossel</option>
-        <option value="REELS">Reels</option>
-        <option value="SHORTS">Shorts</option>
-      </select>
-      <label>De <input type="date" id="date-start" /></label>
-      <label>Até <input type="date" id="date-end" /></label>
-      <button class="btn-export" id="date-clear" onclick="clearDateFilter()">✕ Limpar datas</button>
-      <span id="phase-indicator" class="phase-badge loading">⏳ Carregando...</span>
-      <button class="btn-export" id="btn-csv" onclick="exportCSV()">⬇ CSV</button>
-      <button class="btn-export" onclick="generatePDF()">🖨 Gerar PDF</button>
     </div>
 
     <div class="table-wrap">
@@ -641,10 +640,10 @@
     // com o mesmo período imediatamente anterior — só fica disponível com filtro De/Até
     // preenchido (é o que getPreviousPeriodPosts já exige).
     function renderPlatformComparison(posts) {
-      const tbody = document.getElementById('platform-cmp-body');
+      const grid = document.getElementById('platform-cmp-grid');
       const prevPosts = getPreviousPeriodPosts();
       if (!prevPosts) {
-        tbody.innerHTML = '<tr><td colspan="4" class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</td></tr>';
+        grid.innerHTML = '<div class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</div>';
         return;
       }
 
@@ -666,28 +665,28 @@
       const platforms = Object.keys(curr).length ? Object.keys(curr) : Object.keys(prev);
 
       if (!platforms.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="platform-cmp-empty">Sem posts no período selecionado.</td></tr>';
+        grid.innerHTML = '<div class="platform-cmp-empty">Sem posts no período selecionado.</div>';
         return;
       }
 
-      tbody.innerHTML = platforms.map(plat => {
+      grid.innerHTML = platforms.map(plat => {
         const c = curr[plat] || { posts: 0, views: 0 };
         const p = prev[plat] || { posts: 0, views: 0 };
-        let varHtml = '—';
+        let cmpHtml = '<span class="kpi-compare">— sem período anterior</span>';
         if (p.views > 0) {
           const pct = ((c.views - p.views) / p.views) * 100;
           const cls = pct >= 0 ? 'positive' : 'negative';
           const arrow = pct >= 0 ? '▲' : '▼';
-          varHtml = `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+          cmpHtml = `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}% vs semana anterior</span>`;
         } else if (c.views > 0) {
-          varHtml = '<span class="kpi-compare positive">▲ novo</span>';
+          cmpHtml = '<span class="kpi-compare positive">🆕 novo no período</span>';
         }
-        return `<tr>
-          <td>${PLATFORM_LABEL[plat] || plat}</td>
-          <td class="metric">${fmt(c.posts)}</td>
-          <td class="metric">${fmt(c.views)}</td>
-          <td class="metric">${varHtml}</td>
-        </tr>`;
+        return `<div class="platform-cmp-card plat-${plat}">
+          <div class="platform-cmp-label">${PLATFORM_LABEL[plat] || plat}</div>
+          <div class="platform-cmp-value">${fmt(c.views)}</div>
+          ${cmpHtml}
+          <div class="platform-cmp-sub">${fmt(c.posts)} posts no período</div>
+        </div>`;
       }).join('');
     }
 
@@ -898,7 +897,12 @@
 
     // Fase 2: enriquece com insights de posts Instagram, em lotes de 10
     async function loadInsights() {
-      const allIds = allPosts.filter(p => p.platform !== 'youtube').map(p => p.id);
+      // Só posts nativos do Instagram têm insights via Graph API — YouTube e TikTok já
+      // vêm com views prontas (view_count) desde o load inicial. Buscar insights pra
+      // esses IDs (ex: "tt_123...") retorna erro da Graph API e sobrescrevia o
+      // insights[id] pré-populado com {error: ...}, zerando as views deles depois
+      // que a fase 2 rodava.
+      const allIds = allPosts.filter(p => p.platform !== 'youtube' && p.platform !== 'tiktok').map(p => p.id);
       if (allIds.length === 0) return;
 
       const chunkSize = 10;
