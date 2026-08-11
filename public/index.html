@@ -65,7 +65,10 @@
     .platform-cmp-card.plat-tiktok { border-top-color: #000000; }
     .platform-cmp-card.plat-youtube { border-top-color: #FF0000; }
     .platform-cmp-label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); margin-bottom: 10px; }
-    .platform-cmp-value { font-size: 1.9rem; font-weight: 800; color: var(--navy); }
+    .platform-cmp-metric { margin-bottom: 12px; }
+    .platform-cmp-metric:last-of-type { margin-bottom: 0; }
+    .platform-cmp-metric-name { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--navy-soft); margin-bottom: 2px; }
+    .platform-cmp-value { font-size: 1.5rem; font-weight: 800; color: var(--navy); }
     .platform-cmp-sub { font-size: 0.75rem; color: var(--navy-soft); font-weight: 600; margin-top: 6px; }
     .platform-cmp-empty { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--navy-soft); font-size: 0.85rem; font-weight: 600; background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; }
 
@@ -208,8 +211,6 @@
 
     <div class="kpis">
       <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div><div class="kpi-compare" id="kpi-posts-cmp"></div></div>
-      <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div><div class="kpi-compare" id="kpi-likes-cmp"></div></div>
-      <div class="kpi"><div class="kpi-label">Comentários</div><div class="kpi-value" id="kpi-comments">—</div><div class="kpi-compare" id="kpi-comments-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Interações</div><div class="kpi-value" id="kpi-interactions">—</div><div class="kpi-compare" id="kpi-interactions-cmp"></div></div>
       <div class="kpi" title="Impressões reais da conta no período (inclui Stories, Reels e Feed). Disponível quando datas são selecionadas."><div class="kpi-label">Impressões da Conta ★</div><div class="kpi-value" id="kpi-impressions">—</div><div class="kpi-sub" id="kpi-impressions-sub"></div></div>
       <div class="kpi"><div class="kpi-label">Seguidores Ganhos</div><div class="kpi-value" id="kpi-follows">—</div><div class="kpi-compare" id="kpi-follows-cmp"></div></div>
@@ -217,7 +218,7 @@
     </div>
 
     <div class="platform-cmp-section">
-      <div class="section-title">📊 Comparativo por Rede — Interações <span style="font-size:0.7rem;font-weight:600;color:var(--navy-soft);text-transform:none;">(vs período anterior)</span></div>
+      <div class="section-title">📊 Comparativo por Rede <span style="font-size:0.7rem;font-weight:600;color:var(--navy-soft);text-transform:none;">(vs período anterior)</span></div>
       <div class="platform-cmp-grid" id="platform-cmp-grid">
         <div class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</div>
       </div>
@@ -229,10 +230,6 @@
         <div class="top-posts-col">
           <h3>Mais Visualizações</h3>
           <div id="top-views-list"></div>
-        </div>
-        <div class="top-posts-col">
-          <h3>Mais Salvamentos</h3>
-          <div id="top-saved-list"></div>
         </div>
         <div class="top-posts-col">
           <h3>Melhor Engajamento</h3>
@@ -247,10 +244,6 @@
         <div class="top-posts-col">
           <h3>Menos Visualizações</h3>
           <div id="worst-views-list"></div>
-        </div>
-        <div class="top-posts-col">
-          <h3>Menos Salvamentos</h3>
-          <div id="worst-saved-list"></div>
         </div>
         <div class="top-posts-col">
           <h3>Pior Engajamento</h3>
@@ -427,8 +420,6 @@
     function computeKpiSums(posts) {
       return {
         posts: posts.length,
-        likes: posts.reduce((s, p) => s + (p.like_count || 0), 0),
-        comments: posts.reduce((s, p) => s + (p.comments_count || 0), 0),
         interactions: posts.reduce((s, p) => s + getPostInteractions(p), 0),
         follows: posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0),
         eng: getAvgEngRate(posts),
@@ -537,21 +528,17 @@
     function updateKPIs(posts) {
       const sums = computeKpiSums(posts);
       document.getElementById('kpi-posts').textContent = sums.posts;
-      document.getElementById('kpi-likes').textContent = fmt(sums.likes);
-      document.getElementById('kpi-comments').textContent = fmt(sums.comments);
       document.getElementById('kpi-interactions').textContent = sums.interactions > 0 ? fmt(sums.interactions) : '—';
       document.getElementById('kpi-follows').textContent = sums.follows > 0 ? fmt(sums.follows) : '—';
       document.getElementById('kpi-eng').textContent = sums.eng !== null ? sums.eng.toFixed(2) + '%' : '—';
 
       const prevPosts = getPreviousPeriodPosts();
       if (!prevPosts) {
-        ['posts', 'likes', 'comments', 'interactions', 'follows', 'eng'].forEach(k => renderComparison(`kpi-${k}-cmp`, null, null));
+        ['posts', 'interactions', 'follows', 'eng'].forEach(k => renderComparison(`kpi-${k}-cmp`, null, null));
         return;
       }
       const prevSums = computeKpiSums(prevPosts);
       renderComparison('kpi-posts-cmp', sums.posts, prevSums.posts);
-      renderComparison('kpi-likes-cmp', sums.likes, prevSums.likes);
-      renderComparison('kpi-comments-cmp', sums.comments, prevSums.comments);
       renderComparison('kpi-interactions-cmp', sums.interactions, prevSums.interactions);
       renderComparison('kpi-follows-cmp', sums.follows, prevSums.follows);
       renderComparison('kpi-eng-cmp', sums.eng, prevSums.eng);
@@ -622,32 +609,26 @@
       }
     }
 
-    // Top 5 posts do período filtrado por visualizações, salvamentos e engajamento
+    // Top 5 posts do período filtrado por visualizações e engajamento
     function renderTopPosts(posts) {
       const byViews = posts.filter(p => getPostViews(p) > 0)
         .sort((a, b) => getPostViews(b) - getPostViews(a)).slice(0, 5);
-      const bySaved = posts.filter(p => insights[p.id]?.saved)
-        .sort((a, b) => insights[b.id].saved - insights[a.id].saved).slice(0, 5);
       const byEng = posts.filter(p => getEngRate(p))
         .sort((a, b) => parseFloat(getEngRate(b)) - parseFloat(getEngRate(a))).slice(0, 5);
 
       renderTopList('top-views-list', byViews, p => `${fmt(getPostViews(p))} visualizações`);
-      renderTopList('top-saved-list', bySaved, p => `${fmt(insights[p.id].saved)} salvamentos`);
       renderTopList('top-eng-list', byEng, p => `${getEngRate(p)}% engajamento`);
     }
 
-    // Piores 5 posts do período filtrado por visualizações, salvamentos e engajamento —
+    // Piores 5 posts do período filtrado por visualizações e engajamento —
     // mesmo critério do Top Posts, só que ordenado do menor pro maior.
     function renderWorstPosts(posts) {
       const byViews = posts.filter(p => getPostViews(p) > 0)
         .sort((a, b) => getPostViews(a) - getPostViews(b)).slice(0, 5);
-      const bySaved = posts.filter(p => insights[p.id]?.saved)
-        .sort((a, b) => insights[a.id].saved - insights[b.id].saved).slice(0, 5);
       const byEng = posts.filter(p => getEngRate(p))
         .sort((a, b) => parseFloat(getEngRate(a)) - parseFloat(getEngRate(b))).slice(0, 5);
 
       renderTopList('worst-views-list', byViews, p => `${fmt(getPostViews(p))} visualizações`);
-      renderTopList('worst-saved-list', bySaved, p => `${fmt(insights[p.id].saved)} salvamentos`);
       renderTopList('worst-eng-list', byEng, p => `${getEngRate(p)}% engajamento`);
     }
 
@@ -668,11 +649,23 @@
         const g = {};
         list.forEach(p => {
           const plat = p.platform || 'instagram';
-          if (!g[plat]) g[plat] = { posts: 0, interactions: 0 };
+          if (!g[plat]) g[plat] = { posts: 0, views: 0, interactions: 0 };
           g[plat].posts += 1;
+          g[plat].views += getPostViews(p);
           g[plat].interactions += getPostInteractions(p);
         });
         return g;
+      }
+
+      function pctCompareHtml(curr, prev) {
+        if (prev > 0) {
+          const pct = ((curr - prev) / prev) * 100;
+          const cls = pct >= 0 ? 'positive' : 'negative';
+          const arrow = pct >= 0 ? '▲' : '▼';
+          return `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}% vs semana anterior</span>`;
+        }
+        if (curr > 0) return '<span class="kpi-compare positive">🆕 novo no período</span>';
+        return '<span class="kpi-compare">— sem período anterior</span>';
       }
 
       const curr = grouped(posts);
@@ -685,21 +678,20 @@
       }
 
       grid.innerHTML = platforms.map(plat => {
-        const c = curr[plat] || { posts: 0, interactions: 0 };
-        const p = prev[plat] || { posts: 0, interactions: 0 };
-        let cmpHtml = '<span class="kpi-compare">— sem período anterior</span>';
-        if (p.interactions > 0) {
-          const pct = ((c.interactions - p.interactions) / p.interactions) * 100;
-          const cls = pct >= 0 ? 'positive' : 'negative';
-          const arrow = pct >= 0 ? '▲' : '▼';
-          cmpHtml = `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}% vs semana anterior</span>`;
-        } else if (c.interactions > 0) {
-          cmpHtml = '<span class="kpi-compare positive">🆕 novo no período</span>';
-        }
+        const c = curr[plat] || { posts: 0, views: 0, interactions: 0 };
+        const p = prev[plat] || { posts: 0, views: 0, interactions: 0 };
         return `<div class="platform-cmp-card plat-${plat}">
           <div class="platform-cmp-label">${PLATFORM_LABEL[plat] || plat}</div>
-          <div class="platform-cmp-value">${fmt(c.interactions)}</div>
-          ${cmpHtml}
+          <div class="platform-cmp-metric">
+            <div class="platform-cmp-metric-name">Visualizações</div>
+            <div class="platform-cmp-value">${fmt(c.views)}</div>
+            ${pctCompareHtml(c.views, p.views)}
+          </div>
+          <div class="platform-cmp-metric">
+            <div class="platform-cmp-metric-name">Interações</div>
+            <div class="platform-cmp-value">${fmt(c.interactions)}</div>
+            ${pctCompareHtml(c.interactions, p.interactions)}
+          </div>
           <div class="platform-cmp-sub">${fmt(c.posts)} posts no período</div>
         </div>`;
       }).join('');
@@ -751,7 +743,6 @@
     function renderEvolutionChart(posts) {
       const canvas = document.getElementById('evolution-chart');
       const emptyMsg = document.getElementById('evolution-chart-empty');
-      const title = document.getElementById('evolution-chart-title');
       if (!canvas) return;
       if (!window.Chart) {
         if (emptyMsg) { emptyMsg.textContent = 'Gráfico indisponível.'; emptyMsg.style.display = 'block'; }
@@ -759,31 +750,20 @@
         return;
       }
 
-      // Com um período curto selecionado (até 21 dias), agrupar por dia mostra a
-      // evolução de verdade — por semana, um filtro de poucos dias vira só 1-2 pontos
-      // e o gráfico fica sem sentido. Sem período definido (histórico completo),
-      // mantém agrupamento semanal.
-      const dateStart = document.getElementById('date-start').value;
-      const dateEnd = document.getElementById('date-end').value;
-      let byDay = false;
-      if (dateStart && dateEnd) {
-        const spanDays = (new Date(dateEnd + 'T00:00:00Z') - new Date(dateStart + 'T00:00:00Z')) / (1000 * 60 * 60 * 24);
-        byDay = spanDays <= 21;
-      }
-      if (title) title.textContent = byDay ? 'Evolução Diária' : 'Evolução Semanal';
-
-      const bucketMap = {};
+      // Sempre agrupado por semana — visualizações x volumetria (nº de posts), pra ver
+      // se mais posts estão de fato gerando mais views ou não.
+      const weekMap = {};
       posts.forEach(p => {
         if (!p.timestamp) return;
-        const key = byDay ? p.timestamp.substring(0, 10) : getWeekStart(p.timestamp).toISOString().substring(0, 10);
-        if (!bucketMap[key]) bucketMap[key] = { views: 0, likes: 0 };
-        bucketMap[key].views += insights[p.id]?.views || 0;
-        bucketMap[key].likes += p.like_count || 0;
+        const key = getWeekStart(p.timestamp).toISOString().substring(0, 10);
+        if (!weekMap[key]) weekMap[key] = { views: 0, posts: 0 };
+        weekMap[key].views += getPostViews(p);
+        weekMap[key].posts += 1;
       });
 
-      const buckets = Object.keys(bucketMap).sort();
+      const weeks = Object.keys(weekMap).sort();
       if (evolutionChart) { evolutionChart.destroy(); evolutionChart = null; }
-      if (buckets.length === 0) {
+      if (weeks.length === 0) {
         if (emptyMsg) { emptyMsg.textContent = 'Sem dados suficientes para este período.'; emptyMsg.style.display = 'block'; }
         canvas.style.display = 'none';
         return;
@@ -794,16 +774,19 @@
       evolutionChart = new Chart(canvas, {
         type: 'line',
         data: {
-          labels: buckets.map(fmtWeekLabel),
+          labels: weeks.map(fmtWeekLabel),
           datasets: [
-            { label: 'Visualizações', data: buckets.map(w => bucketMap[w].views), borderColor: '#007693', backgroundColor: 'rgba(0,180,216,0.15)', tension: 0.3, fill: true },
-            { label: 'Curtidas', data: buckets.map(w => bucketMap[w].likes), borderColor: '#0A2342', backgroundColor: 'rgba(10,35,66,0.08)', tension: 0.3, fill: true },
+            { label: 'Visualizações', data: weeks.map(w => weekMap[w].views), borderColor: '#007693', backgroundColor: 'rgba(0,180,216,0.15)', tension: 0.3, fill: true, yAxisID: 'y' },
+            { label: 'Volumetria (posts)', data: weeks.map(w => weekMap[w].posts), borderColor: '#0A2342', backgroundColor: 'rgba(10,35,66,0.08)', tension: 0.3, fill: true, yAxisID: 'y1' },
           ],
         },
         options: {
           responsive: true,
           plugins: { legend: { position: 'bottom' } },
-          scales: { y: { beginAtZero: true } },
+          scales: {
+            y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Visualizações' } },
+            y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Volumetria (posts)' } },
+          },
         },
       });
     }
@@ -821,7 +804,7 @@
 
       // TikTok é conteúdo em vídeo, não um "formato" à parte — sem isso, ele aparecia
       // como uma barra própria no meio de Foto/Vídeo/Carrossel/Reels/Shorts.
-      const FORMAT_MERGE = { TIKTOK: 'VIDEO' };
+      const FORMAT_MERGE = { TIKTOK: 'VIDEO', SHORTS: 'VIDEO' };
       const buckets = {};
       posts.forEach(p => {
         const rawType = p.media_type || 'OUTRO';
