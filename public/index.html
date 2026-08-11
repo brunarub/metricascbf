@@ -364,6 +364,22 @@
       });
     }
 
+    // Igual getFilteredPosts, mas ignora De/Até de propósito — a "Evolução Semanal"
+    // sempre olha as últimas 4 semanas fechadas, independente do período que estiver
+    // selecionado nos filtros (que serve pros KPIs, comparativo e top/piores posts).
+    function getPostsForEvolutionChart() {
+      const search = document.getElementById('search').value.toLowerCase();
+      const typeFilter = document.getElementById('type-filter').value;
+      const platformFilter = document.getElementById('platform-filter').value;
+      return allPosts.filter(p => {
+        if (activeTab !== 'todos' && p.account_label !== activeTab) return false;
+        if (typeFilter && p.media_type !== typeFilter) return false;
+        if (platformFilter && (p.platform || 'instagram') !== platformFilter) return false;
+        if (search && !(p.caption || '').toLowerCase().includes(search) && !(p.account_label || '').toLowerCase().includes(search)) return false;
+        return true;
+      });
+    }
+
     function clearDateFilter() {
       document.getElementById('date-start').value = '';
       document.getElementById('date-end').value = '';
@@ -750,8 +766,9 @@
         return;
       }
 
-      // Sempre agrupado por semana — visualizações x volumetria (nº de posts), pra ver
-      // se mais posts estão de fato gerando mais views ou não.
+      // Visualizações x volumetria (nº de posts) por semana. "posts" aqui já vem sem
+      // filtro de data (ver getPostsForEvolutionChart) — as 4 semanas mostradas são
+      // sempre as últimas 4 fechadas a partir de hoje, não o que estiver em De/Até.
       const weekMap = {};
       posts.forEach(p => {
         if (!p.timestamp) return;
@@ -761,9 +778,17 @@
         weekMap[key].posts += 1;
       });
 
-      const weeks = Object.keys(weekMap).sort();
+      const currentWeekStart = getWeekStart(new Date());
+      const weeks = [];
+      for (let i = 3; i >= 0; i--) {
+        const d = new Date(currentWeekStart);
+        d.setUTCDate(d.getUTCDate() - i * 7);
+        weeks.push(d.toISOString().substring(0, 10));
+      }
+
       if (evolutionChart) { evolutionChart.destroy(); evolutionChart = null; }
-      if (weeks.length === 0) {
+      const hasData = weeks.some(w => weekMap[w]);
+      if (!hasData) {
         if (emptyMsg) { emptyMsg.textContent = 'Sem dados suficientes para este período.'; emptyMsg.style.display = 'block'; }
         canvas.style.display = 'none';
         return;
@@ -776,8 +801,8 @@
         data: {
           labels: weeks.map(fmtWeekLabel),
           datasets: [
-            { label: 'Visualizações', data: weeks.map(w => weekMap[w].views), borderColor: '#007693', backgroundColor: 'rgba(0,180,216,0.15)', tension: 0.3, fill: true, yAxisID: 'y' },
-            { label: 'Volumetria (posts)', data: weeks.map(w => weekMap[w].posts), borderColor: '#0A2342', backgroundColor: 'rgba(10,35,66,0.08)', tension: 0.3, fill: true, yAxisID: 'y1' },
+            { label: 'Visualizações', data: weeks.map(w => weekMap[w]?.views || 0), borderColor: '#007693', backgroundColor: 'rgba(0,180,216,0.15)', tension: 0.3, fill: true, yAxisID: 'y' },
+            { label: 'Volumetria (posts)', data: weeks.map(w => weekMap[w]?.posts || 0), borderColor: '#0A2342', backgroundColor: 'rgba(10,35,66,0.08)', tension: 0.3, fill: true, yAxisID: 'y1' },
           ],
         },
         options: {
@@ -857,7 +882,7 @@
     }
 
     const renderChartsDebounced = debounce((posts) => {
-      renderEvolutionChart(posts);
+      renderEvolutionChart(getPostsForEvolutionChart());
       renderFormatChart(posts);
     }, 400);
 
