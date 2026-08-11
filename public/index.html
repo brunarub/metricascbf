@@ -210,14 +210,14 @@
       <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div><div class="kpi-compare" id="kpi-posts-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Curtidas</div><div class="kpi-value" id="kpi-likes">—</div><div class="kpi-compare" id="kpi-likes-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Comentários</div><div class="kpi-value" id="kpi-comments">—</div><div class="kpi-compare" id="kpi-comments-cmp"></div></div>
-      <div class="kpi"><div class="kpi-label">Views (Feed/Reels)</div><div class="kpi-value" id="kpi-views">—</div><div class="kpi-compare" id="kpi-views-cmp"></div></div>
+      <div class="kpi"><div class="kpi-label">Interações</div><div class="kpi-value" id="kpi-interactions">—</div><div class="kpi-compare" id="kpi-interactions-cmp"></div></div>
       <div class="kpi" title="Impressões reais da conta no período (inclui Stories, Reels e Feed). Disponível quando datas são selecionadas."><div class="kpi-label">Impressões da Conta ★</div><div class="kpi-value" id="kpi-impressions">—</div><div class="kpi-sub" id="kpi-impressions-sub"></div></div>
       <div class="kpi"><div class="kpi-label">Seguidores Ganhos</div><div class="kpi-value" id="kpi-follows">—</div><div class="kpi-compare" id="kpi-follows-cmp"></div></div>
       <div class="kpi"><div class="kpi-label">Eng. Médio</div><div class="kpi-value" id="kpi-eng">—</div><div class="kpi-compare" id="kpi-eng-cmp"></div></div>
     </div>
 
     <div class="platform-cmp-section">
-      <div class="section-title">📊 Comparativo por Rede <span style="font-size:0.7rem;font-weight:600;color:var(--navy-soft);text-transform:none;">(vs período anterior)</span></div>
+      <div class="section-title">📊 Comparativo por Rede — Interações <span style="font-size:0.7rem;font-weight:600;color:var(--navy-soft);text-transform:none;">(vs período anterior)</span></div>
       <div class="platform-cmp-grid" id="platform-cmp-grid">
         <div class="platform-cmp-empty">Selecione um período (De/Até) para ver o comparativo.</div>
       </div>
@@ -413,12 +413,23 @@
       return insights[p.id]?.views || 0;
     }
 
+    // Retorna o total de interações (curtidas + comentários + salvamentos + compartilhamentos)
+    // de um post, independente da plataforma. Pro Instagram, usa "total_interactions" que já
+    // vem pronto da Graph API (métrica oficial, soma tudo); pra TikTok/YouTube, que não têm essa
+    // métrica agregada, soma curtidas + comentários (TikTok ainda soma compartilhamentos, já que
+    // o insights dele já vem com "shares" preenchido desde o load inicial).
+    function getPostInteractions(p) {
+      const ins = insights[p.id];
+      if (ins?.total_interactions !== undefined) return ins.total_interactions;
+      return (p.like_count || 0) + (p.comments_count || 0) + (ins?.shares || 0) + (ins?.saved || 0);
+    }
+
     function computeKpiSums(posts) {
       return {
         posts: posts.length,
         likes: posts.reduce((s, p) => s + (p.like_count || 0), 0),
         comments: posts.reduce((s, p) => s + (p.comments_count || 0), 0),
-        views: posts.reduce((s, p) => s + getPostViews(p), 0),
+        interactions: posts.reduce((s, p) => s + getPostInteractions(p), 0),
         follows: posts.reduce((s, p) => s + (insights[p.id]?.follows || 0), 0),
         eng: getAvgEngRate(posts),
       };
@@ -528,20 +539,20 @@
       document.getElementById('kpi-posts').textContent = sums.posts;
       document.getElementById('kpi-likes').textContent = fmt(sums.likes);
       document.getElementById('kpi-comments').textContent = fmt(sums.comments);
-      document.getElementById('kpi-views').textContent = sums.views > 0 ? fmt(sums.views) : '—';
+      document.getElementById('kpi-interactions').textContent = sums.interactions > 0 ? fmt(sums.interactions) : '—';
       document.getElementById('kpi-follows').textContent = sums.follows > 0 ? fmt(sums.follows) : '—';
       document.getElementById('kpi-eng').textContent = sums.eng !== null ? sums.eng.toFixed(2) + '%' : '—';
 
       const prevPosts = getPreviousPeriodPosts();
       if (!prevPosts) {
-        ['posts', 'likes', 'comments', 'views', 'follows', 'eng'].forEach(k => renderComparison(`kpi-${k}-cmp`, null, null));
+        ['posts', 'likes', 'comments', 'interactions', 'follows', 'eng'].forEach(k => renderComparison(`kpi-${k}-cmp`, null, null));
         return;
       }
       const prevSums = computeKpiSums(prevPosts);
       renderComparison('kpi-posts-cmp', sums.posts, prevSums.posts);
       renderComparison('kpi-likes-cmp', sums.likes, prevSums.likes);
       renderComparison('kpi-comments-cmp', sums.comments, prevSums.comments);
-      renderComparison('kpi-views-cmp', sums.views, prevSums.views);
+      renderComparison('kpi-interactions-cmp', sums.interactions, prevSums.interactions);
       renderComparison('kpi-follows-cmp', sums.follows, prevSums.follows);
       renderComparison('kpi-eng-cmp', sums.eng, prevSums.eng);
     }
@@ -657,9 +668,9 @@
         const g = {};
         list.forEach(p => {
           const plat = p.platform || 'instagram';
-          if (!g[plat]) g[plat] = { posts: 0, views: 0 };
+          if (!g[plat]) g[plat] = { posts: 0, interactions: 0 };
           g[plat].posts += 1;
-          g[plat].views += getPostViews(p);
+          g[plat].interactions += getPostInteractions(p);
         });
         return g;
       }
@@ -674,20 +685,20 @@
       }
 
       grid.innerHTML = platforms.map(plat => {
-        const c = curr[plat] || { posts: 0, views: 0 };
-        const p = prev[plat] || { posts: 0, views: 0 };
+        const c = curr[plat] || { posts: 0, interactions: 0 };
+        const p = prev[plat] || { posts: 0, interactions: 0 };
         let cmpHtml = '<span class="kpi-compare">— sem período anterior</span>';
-        if (p.views > 0) {
-          const pct = ((c.views - p.views) / p.views) * 100;
+        if (p.interactions > 0) {
+          const pct = ((c.interactions - p.interactions) / p.interactions) * 100;
           const cls = pct >= 0 ? 'positive' : 'negative';
           const arrow = pct >= 0 ? '▲' : '▼';
           cmpHtml = `<span class="kpi-compare ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}% vs semana anterior</span>`;
-        } else if (c.views > 0) {
+        } else if (c.interactions > 0) {
           cmpHtml = '<span class="kpi-compare positive">🆕 novo no período</span>';
         }
         return `<div class="platform-cmp-card plat-${plat}">
           <div class="platform-cmp-label">${PLATFORM_LABEL[plat] || plat}</div>
-          <div class="platform-cmp-value">${fmt(c.views)}</div>
+          <div class="platform-cmp-value">${fmt(c.interactions)}</div>
           ${cmpHtml}
           <div class="platform-cmp-sub">${fmt(c.posts)} posts no período</div>
         </div>`;
