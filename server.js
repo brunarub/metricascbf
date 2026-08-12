@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, refreshAccessToken } = require('./src/instagram');
 const { getYouTubePosts, getYouTubeAccounts } = require('./src/youtube');
-const { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal } = require('./src/tiktok');
+const { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal, persistTokens } = require('./src/tiktok');
 const { getCalendario } = require('./src/calendario');
 const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
@@ -159,7 +159,10 @@ app.get('/auth/tiktok/callback', async (req, res) => {
       open_id:       tokenData.open_id,
       connected_at:  new Date().toISOString(),
     };
-    writeTokensLocal(tokens);
+    // persistTokens salva no arquivo local E atualiza process.env.TIKTOK_TOKENS
+    // na hora — sem isso, o processo em execução continuava com o token antigo
+    // até reiniciar, mesmo depois de reconectar com sucesso pelo navegador.
+    await persistTokens(tokens);
 
     // Instrução para salvar no Render
     const tokenJson = JSON.stringify(tokens);
