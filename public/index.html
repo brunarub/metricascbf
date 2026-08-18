@@ -183,6 +183,7 @@
       <button class="tab" data-tab="copa_do_brasil">Copa do Brasil</button>
       <button class="tab" data-tab="brasileirao">Brasileirão</button>
       <button class="tab" data-tab="brasileiras">Brasileiras</button>
+      <button class="tab" data-tab="selecao">Seleção</button>
     </div>
 
     <div class="filters">
@@ -323,7 +324,7 @@
 
     const TYPE_LABELS = { IMAGE: 'Foto', VIDEO: 'Vídeo', CAROUSEL_ALBUM: 'Carrossel', REELS: 'Reels', SHORTS: 'Shorts', TIKTOK: 'TikTok' };
     const TYPE_CLASS = { IMAGE: 'badge-foto', VIDEO: 'badge-video', CAROUSEL_ALBUM: 'badge-carrossel', REELS: 'badge-reels', SHORTS: 'badge-shorts', TIKTOK: 'badge-tiktok' };
-    const PROFILE_COLORS = { copa_do_brasil: '#3d99e0', brasileirao: '#3dcc3d', brasileiras: '#cc3dcc' };
+    const PROFILE_COLORS = { copa_do_brasil: '#3d99e0', brasileirao: '#3dcc3d', brasileiras: '#cc3dcc', selecao: '#e0c93d' };
     const PLATFORM_ICON = { instagram: '📸', youtube: '▶️', tiktok: '🎵' };
 
     function fmt(n) {
@@ -900,15 +901,17 @@
     // Fase 1: carrega posts Instagram + YouTube em paralelo
     async function loadPosts() {
       try {
-        const [igRes, ytRes, ttRes] = await Promise.all([
+        const [igRes, ytRes, ttRes, rpRes] = await Promise.all([
           fetch('/api/posts'),
           fetch('/api/youtube-posts'),
           fetch('/api/tiktok-posts'),
+          fetch('/api/reportei-posts'),
         ]);
         if (!igRes.ok) throw new Error(await igRes.text());
         const igPosts = await igRes.json();
         const ytPosts = ytRes.ok ? await ytRes.json() : [];
         const ttPosts = ttRes.ok ? await ttRes.json() : [];
+        const rpPosts = rpRes.ok ? await rpRes.json() : [];
 
         // YouTube e TikTok: marca plataforma e pré-popula insights
         ytPosts.forEach(p => {
@@ -919,9 +922,14 @@
           p.platform = 'tiktok';
           insights[p.id] = { views: p.view_count || 0, saved: 0, shares: p.shares || 0, follows: 0, total_interactions: (p.like_count||0) + (p.comments_count||0) };
         });
+        // Reportei (Brasileirão e Seleção): já vem com os insights prontos na mesma
+        // resposta (ver src/reportei.js) — só precopular igual TikTok/YouTube.
+        rpPosts.forEach(p => {
+          insights[p.id] = p._insights || { views: 0, saved: 0, shares: 0, follows: 0, total_interactions: 0 };
+        });
         igPosts.forEach(p => { if (!p.platform) p.platform = 'instagram'; });
 
-        allPosts = [...igPosts, ...ytPosts, ...ttPosts]
+        allPosts = [...igPosts, ...ytPosts, ...ttPosts, ...rpPosts]
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         phase = 1;
@@ -938,12 +946,12 @@
 
     // Fase 2: enriquece com insights de posts Instagram, em lotes de 10
     async function loadInsights() {
-      // Só posts nativos do Instagram têm insights via Graph API — YouTube e TikTok já
-      // vêm com views prontas (view_count) desde o load inicial. Buscar insights pra
-      // esses IDs (ex: "tt_123...") retorna erro da Graph API e sobrescrevia o
-      // insights[id] pré-populado com {error: ...}, zerando as views deles depois
-      // que a fase 2 rodava.
-      const allIds = allPosts.filter(p => p.platform !== 'youtube' && p.platform !== 'tiktok').map(p => p.id);
+      // Só posts nativos do Instagram (via Graph API) têm insights buscados aqui —
+      // YouTube, TikTok e Reportei já vêm com views/insights prontos desde o load
+      // inicial. Buscar insights pra esses IDs (ex: "tt_123...", "rp_brasileirao_...")
+      // retorna erro da Graph API e sobrescrevia o insights[id] pré-populado com
+      // {error: ...}, zerando as métricas deles depois que a fase 2 rodava.
+      const allIds = allPosts.filter(p => p.platform !== 'youtube' && p.platform !== 'tiktok' && p.source !== 'reportei').map(p => p.id);
       if (allIds.length === 0) return;
 
       const chunkSize = 10;

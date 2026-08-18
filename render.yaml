@@ -23,6 +23,8 @@ services:
         sync: false
       - key: GOOGLE_PRIVATE_KEY
         sync: false
+      - key: REPORTEI_API_TOKEN
+        sync: false
 
   - type: cron
     name: insta-dash-token-refresh

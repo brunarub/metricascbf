@@ -5,6 +5,7 @@ const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, refreshAccessToken } = require('./src/instagram');
 const { getYouTubePosts, getYouTubeAccounts } = require('./src/youtube');
 const { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal, persistTokens } = require('./src/tiktok');
+const { getReporteiPosts } = require('./src/reportei');
 const { getCalendario } = require('./src/calendario');
 const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
@@ -233,6 +234,26 @@ app.get('/conectar-tiktok', (req, res) => {
     <p style="margin-top:24px"><a href="/">← Voltar ao dashboard</a></p>
     </body></html>
   `);
+});
+
+// ─── Reportei (Brasileirão e Seleção — sem acesso direto via Meta Graph API) ───
+
+// GET /api/reportei-posts — posts de Instagram via Reportei
+const rpCache = { posts: null, ts: 0 };
+app.get('/api/reportei-posts', async (req, res) => {
+  try {
+    if (!process.env.REPORTEI_API_TOKEN) return res.json([]);
+    if (rpCache.posts && (Date.now() - rpCache.ts) < CACHE_TTL) {
+      return res.json(rpCache.posts);
+    }
+    const posts = await getReporteiPosts();
+    rpCache.posts = posts;
+    rpCache.ts = Date.now();
+    res.json(posts);
+  } catch (err) {
+    console.error('Erro /api/reportei-posts:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── YouTube ──────────────────────────────────────────────────────────────────
