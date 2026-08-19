@@ -48,7 +48,7 @@ async function fetchAccountPosts(accountLabel, integrationId, daysBack) {
     metrics: [MEDIA_DATATABLE_METRIC],
   }, {
     headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-    timeout: 20000,
+    timeout: 30000,
   });
 
   const result = res.data?.data?.[MEDIA_DATATABLE_METRIC.id];
@@ -84,7 +84,7 @@ async function fetchAccountPosts(accountLabel, integrationId, daysBack) {
 }
 
 // Retorna posts normalizados de todas as contas configuradas (Brasileirão + Seleção).
-async function getReporteiPosts(daysBack = 180) {
+async function getReporteiPosts(daysBack = 30) {
   if (!TOKEN) return [];
   const allPosts = [];
   const entries = Object.entries(ACCOUNTS);
