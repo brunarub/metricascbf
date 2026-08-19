@@ -64,6 +64,7 @@
     .platform-cmp-card.plat-instagram { border-top-color: #C13584; }
     .platform-cmp-card.plat-tiktok { border-top-color: #000000; }
     .platform-cmp-card.plat-youtube { border-top-color: #FF0000; }
+    .platform-cmp-card.plat-selecao { border-top-color: #009C3B; }
     .platform-cmp-label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--navy-soft); margin-bottom: 10px; }
     .platform-cmp-metric { margin-bottom: 12px; }
     .platform-cmp-metric:last-of-type { margin-bottom: 0; }
@@ -681,12 +682,20 @@
         return;
       }
 
-      const PLATFORM_LABEL = { instagram: '📸 Instagram', tiktok: '🎵 TikTok', youtube: '▶️ YouTube' };
+      const PLATFORM_LABEL = { instagram: '📸 Instagram', tiktok: '🎵 TikTok', youtube: '▶️ YouTube', selecao: '🇧🇷 Seleção' };
+
+      // A Seleção tem card próprio, separado do resto do Instagram (Brasileirão,
+      // Brasileiras, Copa do Brasil) — não faz sentido misturar os números dela com
+      // os das outras contas nesse comparativo.
+      function groupKey(p) {
+        if (p.account_label === 'selecao') return 'selecao';
+        return p.platform || 'instagram';
+      }
 
       function grouped(list) {
         const g = {};
         list.forEach(p => {
-          const plat = p.platform || 'instagram';
+          const plat = groupKey(p);
           if (!g[plat]) g[plat] = { posts: 0, views: 0, interactions: 0 };
           g[plat].posts += 1;
           g[plat].views += getPostViews(p);
