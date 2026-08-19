@@ -589,10 +589,18 @@
           ytViews = filtered.reduce((s, p) => s + (p.view_count || 0), 0);
         }
 
+        // Views TikTok: mesma lógica do YouTube — soma direta das visualizações já
+        // carregadas, sem precisar de chamada extra.
+        let ttViews = 0;
+        if (platformFilter !== 'instagram') {
+          const filtered = getFilteredPosts().filter(p => p.platform === 'tiktok');
+          ttViews = filtered.reduce((s, p) => s + getPostViews(p), 0);
+        }
+
         // Impressões Instagram (conta com Stories) — respeitando aba ativa
         let igTotal = 0;
         const igByAccount = {};
-        if (platformFilter !== 'youtube') {
+        if (platformFilter !== 'youtube' && platformFilter !== 'tiktok') {
           const accountParam = activeTab !== 'todos' ? `&account=${activeTab}` : '';
           const res = await fetch(`/api/account-insights?since=${since}&until=${until}${accountParam}`);
           if (fetchId !== accountInsightsFetchId) return;
@@ -601,11 +609,23 @@
             igTotal = data.total || 0;
             Object.assign(igByAccount, data.byAccount);
           }
+
+          // Brasileirão não tem acesso direto via Meta Graph API — o dado de Instagram
+          // dele vem do Reportei (ver src/reportei.js), já carregado junto com o resto
+          // dos posts. Soma as visualizações desses posts aqui também, do mesmo jeito
+          // que o restante do dashboard já usa (getPostViews). Seleção fica de fora
+          // dessa soma por pedido da cliente.
+          const reporteiPosts = getFilteredPosts().filter(p => p.source === 'reportei' && p.account_label === 'brasileirao');
+          reporteiPosts.forEach(p => {
+            const v = getPostViews(p);
+            igTotal += v;
+            igByAccount[p.account_label] = (igByAccount[p.account_label] || 0) + v;
+          });
         }
 
         if (fetchId !== accountInsightsFetchId) return;
 
-        const grandTotal = igTotal + ytViews;
+        const grandTotal = igTotal + ytViews + ttViews;
         el.textContent = fmt(grandTotal);
 
         // Legenda
@@ -617,7 +637,8 @@
           parts.push(`Instagram: ${fmt(igTotal)}`);
         }
         if (ytViews > 0) parts.push(`YouTube: ${fmt(ytViews)}`);
-        sub.textContent = parts.length ? parts.join(' · ') : 'Feed + Reels + Stories + YouTube';
+        if (ttViews > 0) parts.push(`TikTok: ${fmt(ttViews)}`);
+        sub.textContent = parts.length ? parts.join(' · ') : 'Feed + Reels + Stories + YouTube + TikTok';
 
       } catch (e) {
         if (fetchId !== accountInsightsFetchId) return;
