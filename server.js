@@ -5,7 +5,7 @@ const fs = require('fs');
 const { getAccounts, getPostsBasic, getPostInsights, getFollowersCount, getAccountInsights, refreshAccessToken } = require('./src/instagram');
 const { getYouTubePosts, getYouTubeAccounts } = require('./src/youtube');
 const { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal, persistTokens } = require('./src/tiktok');
-const { getReporteiPosts } = require('./src/reportei');
+const { getReporteiPosts, getAccountViewsTotal, REPORTEI_ACCOUNT_LABELS } = require('./src/reportei');
 const { getCalendario } = require('./src/calendario');
 const { getEscalaSemana, getEscalaProxDias, detectarSobrecarga, calcularHorarioPlantao, ehCoberturaDejogo, isIntern } = require('./src/escala');
 const { enviarAlertaSobrecarga, enviarResumoSemanal } = require('./src/emails');
@@ -296,14 +296,33 @@ app.get('/api/account-insights', async (req, res) => {
     const byAccount = {};
     let total = 0;
 
-    for (const account of accounts) {
+    for (const acc of accounts) {
       try {
-        const impressions = await getAccountInsights(account.id, sinceTs, untilTs);
-        byAccount[account.label] = impressions;
+        const impressions = await getAccountInsights(acc.id, sinceTs, untilTs);
+        byAccount[acc.label] = impressions;
         total += impressions;
       } catch (err) {
-        console.error(`Erro account-insights ${account.label}:`, err.response?.data?.error || err.message);
-        byAccount[account.label] = null;
+        console.error(`Erro account-insights ${acc.label}:`, err.response?.data?.error || err.message);
+        byAccount[acc.label] = null;
+      }
+    }
+
+    // Brasileirão e Seleção não têm acesso direto via Meta Graph API — usam a métrica
+    // agregada "ig:views" do Reportei (ver src/reportei.js), não a soma por post. Sem
+    // isso, essas duas contas ficavam de fora do account-insights (e o dashboard caía
+    // pra somar `views` por post, que fica bem abaixo do real).
+    let reporteiLabels = REPORTEI_ACCOUNT_LABELS;
+    if (account && account !== 'todos') {
+      reporteiLabels = reporteiLabels.filter(label => label === account);
+    }
+    for (const label of reporteiLabels) {
+      try {
+        const views = await getAccountViewsTotal(label, since, until);
+        byAccount[label] = views;
+        if (views) total += views;
+      } catch (err) {
+        console.error(`Erro Reportei account-views ${label}:`, err.message);
+        byAccount[label] = null;
       }
     }
 

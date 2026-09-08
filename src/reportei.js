@@ -29,6 +29,23 @@ const MEDIA_DATATABLE_METRIC = {
   dimensions: ['media'],
 };
 
+// Métrica de conta "ig:views" (sem dimensão) — total de visualizações orgânicas +
+// pagas do período, calculado pelo próprio Reportei. É a mesma métrica por trás do
+// "Visualizações totais" no painel do Reportei — NÃO é a mesma coisa que somar o
+// campo `views` de cada post (MEDIA_DATATABLE_METRIC acima), que fica bem abaixo do
+// real porque conta só visualizações "orgânicas de posts no feed/reels", sem stories,
+// paid e outros formatos que a métrica de conta agrega.
+// Confirmado via teste (Brasileirão, integration_id 3278904, período 28/08-03/09/2026):
+// essa métrica bateu EXATAMENTE com o painel do Reportei (1.803.822) e ficou muito
+// próxima do Instagram Insights nativo (1.849.724) — contra 717.140 da soma por post.
+const ACCOUNT_VIEWS_METRIC = {
+  id: '28464ee7-8718-4965-82d7-3552f3729ec7',
+  reference_key: 'ig:views',
+  component: 'number_v1',
+  metrics: ['views'],
+  dimensions: [],
+};
+
 const TYPE_MAP = { Image: 'IMAGE', Carousel: 'CAROUSEL_ALBUM', Reels: 'REELS', Video: 'VIDEO' };
 
 function fmtDate(d) {
@@ -102,4 +119,32 @@ async function getReporteiPosts(daysBack = 30) {
   return allPosts;
 }
 
-module.exports = { getReporteiPosts };
+// Total agregado de visualizações da conta (ig:views) num período exato — usado pro
+// KPI "Impressões da Conta", não pra listas de posts (essas continuam usando
+// _insights.views de fetchAccountPosts/MEDIA_DATATABLE_METRIC, que é uma métrica
+// diferente e não precisa mudar).
+// since/until no formato YYYY-MM-DD.
+async function getAccountViewsTotal(accountLabel, since, until) {
+  const account = ACCOUNTS[accountLabel];
+  if (!account || !TOKEN) return null;
+  try {
+    const res = await axios.post(`${API_BASE}/metrics/get-data`, {
+      start: since,
+      end: until,
+      integration_id: account.integrationId,
+      metrics: [ACCOUNT_VIEWS_METRIC],
+    }, {
+      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      timeout: 30000,
+    });
+    const result = res.data?.data?.[ACCOUNT_VIEWS_METRIC.id];
+    return typeof result?.values === 'number' ? result.values : 0;
+  } catch (err) {
+    console.error(`Erro Reportei account-views ${accountLabel}:`, err.response?.data || err.message);
+    return null;
+  }
+}
+
+const REPORTEI_ACCOUNT_LABELS = Object.keys(ACCOUNTS);
+
+module.exports = { getReporteiPosts, getAccountViewsTotal, REPORTEI_ACCOUNT_LABELS };

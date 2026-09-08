@@ -607,21 +607,16 @@
           if (fetchId !== accountInsightsFetchId) return;
           const data = await res.json();
           if (!data.error) {
-            igTotal = data.total || 0;
             Object.assign(igByAccount, data.byAccount);
-          }
 
-          // Brasileirão não tem acesso direto via Meta Graph API — o dado de Instagram
-          // dele vem do Reportei (ver src/reportei.js), já carregado junto com o resto
-          // dos posts. Soma as visualizações desses posts aqui também, do mesmo jeito
-          // que o restante do dashboard já usa (getPostViews). Seleção fica de fora
-          // dessa soma por pedido da cliente.
-          const reporteiPosts = getFilteredPosts().filter(p => p.source === 'reportei' && p.account_label === 'brasileirao');
-          reporteiPosts.forEach(p => {
-            const v = getPostViews(p);
-            igTotal += v;
-            igByAccount[p.account_label] = (igByAccount[p.account_label] || 0) + v;
-          });
+            // account-insights já traz Brasileirão e Seleção (via métrica agregada do
+            // Reportei, ver src/reportei.js) junto com as contas de acesso direto à
+            // Meta Graph API. Seleção fica de fora do TOTAL combinado por pedido da
+            // cliente — mas aparece normalmente quando a aba dela está ativa.
+            igTotal = Object.entries(igByAccount)
+              .filter(([label]) => activeTab !== 'todos' || label !== 'selecao')
+              .reduce((s, [, v]) => s + (v || 0), 0);
+          }
         }
 
         if (fetchId !== accountInsightsFetchId) return;
