@@ -24,6 +24,20 @@ function isCacheValid() {
   return cache.posts && (Date.now() - cache.ts) < CACHE_TTL;
 }
 
+// Corre uma promise contra um limite de tempo — se a promise original nunca
+// resolver/rejeitar (ex: API externa travada sem erro nem timeout próprio),
+// garante que quem chamou não fica pendurado pra sempre. A promise perdedora
+// continua rodando em segundo plano (não é cancelada), só deixa de ser esperada.
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout (${label || 'operação'} > ${ms}ms)`)), ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
 // Cache de insights por post — evita rebuscar tudo na Graph API a cada refresh
 const insightsCache = new Map(); // postId -> { data, ts }
 
@@ -239,20 +253,32 @@ app.get('/conectar-tiktok', (req, res) => {
 // ─── Reportei (Brasileirão e Seleção — sem acesso direto via Meta Graph API) ───
 
 // GET /api/reportei-posts — posts de Instagram via Reportei
+// Resposta sempre no formato { posts, error, stale, staleAgeMin } — nunca um array
+// solto — pra o front-end (public/index.html) sempre ter algo a renderizar, mesmo
+// quando o Reportei trava ou erra. A API do Reportei já ficou minutos sem responder
+// (nem erro nem timeout) pras contas Brasileirão/Seleção, o que travava a página
+// inteira em "Carregando..." (o front-end esperava as 4 fontes num Promise.all).
 const rpCache = { posts: null, ts: 0 };
 app.get('/api/reportei-posts', async (req, res) => {
+  if (!process.env.REPORTEI_API_TOKEN) return res.json({ posts: [], error: null, stale: false });
+  if (rpCache.posts && (Date.now() - rpCache.ts) < CACHE_TTL) {
+    return res.json({ posts: rpCache.posts, error: null, stale: false });
+  }
   try {
-    if (!process.env.REPORTEI_API_TOKEN) return res.json([]);
-    if (rpCache.posts && (Date.now() - rpCache.ts) < CACHE_TTL) {
-      return res.json(rpCache.posts);
-    }
-    const posts = await getReporteiPosts();
+    // Limite duro de 20s pra essa rota, além do timeout de 15s já embutido em
+    // cada chamada axios dentro de getReporteiPosts() (ver src/reportei.js) —
+    // segunda camada de proteção caso a primeira falhe por algum motivo.
+    const posts = await withTimeout(getReporteiPosts(), 20000, 'reportei-posts');
     rpCache.posts = posts;
     rpCache.ts = Date.now();
-    res.json(posts);
+    res.json({ posts, error: null, stale: false });
   } catch (err) {
-    console.error('Erro /api/reportei-posts:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Erro /api/reportei-posts:', err.message);
+    if (rpCache.posts) {
+      const staleAgeMin = Math.round((Date.now() - rpCache.ts) / 60000);
+      return res.json({ posts: rpCache.posts, error: 'reportei_timeout', stale: true, staleAgeMin });
+    }
+    res.json({ posts: [], error: 'reportei_timeout', stale: false });
   }
 });
 

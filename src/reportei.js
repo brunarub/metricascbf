@@ -65,7 +65,11 @@ async function fetchAccountPosts(accountLabel, integrationId, daysBack) {
     metrics: [MEDIA_DATATABLE_METRIC],
   }, {
     headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-    timeout: 30000,
+    // Curto de propósito: a API do Reportei já travou por minutos sem responder
+    // (nem erro, nem timeout) pras contas Brasileirão/Seleção — sem um limite
+    // explícito aqui, isso derruba a página inteira (ver server.js/index.html,
+    // que dependem dessa promise resolver/rejeitar pra não travar em "Carregando").
+    timeout: 15000,
   });
 
   const result = res.data?.data?.[MEDIA_DATATABLE_METRIC.id];
@@ -135,7 +139,7 @@ async function getAccountViewsTotal(accountLabel, since, until) {
       metrics: [ACCOUNT_VIEWS_METRIC],
     }, {
       headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-      timeout: 30000,
+      timeout: 15000,
     });
     const result = res.data?.data?.[ACCOUNT_VIEWS_METRIC.id];
     return typeof result?.values === 'number' ? result.values : 0;

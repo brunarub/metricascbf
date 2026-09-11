@@ -150,6 +150,8 @@
     .state-msg p { font-size: 0.9rem; font-weight: 600; }
     .phase-badge { background: var(--bg-alt); border: 1px solid var(--navy-border); color: var(--navy); padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; margin-left: 12px; }
     .phase-badge.loading { background: rgba(0,180,216,0.18); border-color: var(--primary); color: var(--primary-ink); }
+    #reportei-banner { background: #fff4d6; border: 1px solid #e0b83d; color: #6b5106; padding: 10px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; margin-bottom: 16px; }
+    #reportei-banner[hidden] { display: none; }
 
     /* Relatório PDF (window.print) */
     @media print {
@@ -210,6 +212,8 @@
       <button class="btn-export" id="btn-csv" onclick="exportCSV()">⬇ CSV</button>
       <button class="btn-export" onclick="generatePDF()">🖨 Gerar PDF</button>
     </div>
+
+    <div id="reportei-banner" hidden></div>
 
     <div class="kpis">
       <div class="kpi"><div class="kpi-label">Posts</div><div class="kpi-value" id="kpi-posts">—</div><div class="kpi-compare" id="kpi-posts-cmp"></div></div>
@@ -302,6 +306,32 @@
     let sortCol = 'timestamp';
     let sortDir = -1;
     let phase = 1;
+    // Status da fonte Reportei (Brasileirão/Seleção) — populado em loadPosts().
+    // Usado só pra avisar visualmente quando essa fonte específica falhar/travar,
+    // sem impedir o resto do dashboard (Instagram/YouTube/TikTok) de carregar.
+    let reporteiStatus = { unavailable: false, stale: false, staleAgeMin: 0 };
+
+    // fetch com timeout próprio no front-end — segunda camada de proteção: mesmo
+    // se o backend nunca resolver por algum motivo inesperado, a página não fica
+    // presa esperando pra sempre.
+    function fetchWithTimeout(url, opts, ms = 20000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), ms);
+      return fetch(url, { ...(opts || {}), signal: controller.signal }).finally(() => clearTimeout(timer));
+    }
+
+    function renderReporteiBanner() {
+      const el = document.getElementById('reportei-banner');
+      if (!el) return;
+      if (!reporteiStatus.unavailable && !reporteiStatus.stale) {
+        el.hidden = true;
+        return;
+      }
+      el.hidden = false;
+      el.textContent = reporteiStatus.stale
+        ? `⚠️ Brasileirão/Seleção: Reportei não respondeu agora, mostrando o último dado disponível (${reporteiStatus.staleAgeMin} min atrás).`
+        : '⚠️ Brasileirão/Seleção indisponível no momento (Reportei não respondeu) — o restante do dashboard segue normal.';
+    }
 
     // Período padrão: últimos 7 dias, sempre — assim o Comparativo por Rede e os
     // gráficos já vêm preenchidos sem precisar de nenhum clique. Dá pra trocar ou
@@ -923,20 +953,45 @@
       window.print();
     }
 
-    // Fase 1: carrega posts Instagram + YouTube em paralelo
+    // Fase 1: carrega posts Instagram + YouTube em paralelo. Usa allSettled (não
+    // Promise.all) de propósito: se uma fonte travar/falhar (já aconteceu com o
+    // Reportei — ver src/reportei.js e /api/reportei-posts em server.js), as
+    // outras 3 não podem ficar reféns dela. Instagram continua sendo a única
+    // fonte obrigatória (é o dado principal do dashboard); YouTube/TikTok/Reportei
+    // degradam de forma independente.
     async function loadPosts() {
       try {
-        const [igRes, ytRes, ttRes, rpRes] = await Promise.all([
-          fetch('/api/posts'),
-          fetch('/api/youtube-posts'),
-          fetch('/api/tiktok-posts'),
-          fetch('/api/reportei-posts'),
+        const [igResult, ytResult, ttResult, rpResult] = await Promise.allSettled([
+          fetchWithTimeout('/api/posts'),
+          fetchWithTimeout('/api/youtube-posts'),
+          fetchWithTimeout('/api/tiktok-posts'),
+          fetchWithTimeout('/api/reportei-posts'),
         ]);
-        if (!igRes.ok) throw new Error(await igRes.text());
-        const igPosts = await igRes.json();
-        const ytPosts = ytRes.ok ? await ytRes.json() : [];
-        const ttPosts = ttRes.ok ? await ttRes.json() : [];
-        const rpPosts = rpRes.ok ? await rpRes.json() : [];
+
+        if (igResult.status !== 'fulfilled' || !igResult.value.ok) {
+          const reason = igResult.status === 'fulfilled' ? await igResult.value.text() : igResult.reason?.message;
+          throw new Error(reason || 'Falha ao carregar posts do Instagram');
+        }
+        const igPosts = await igResult.value.json();
+        const ytPosts = (ytResult.status === 'fulfilled' && ytResult.value.ok) ? await ytResult.value.json() : [];
+        const ttPosts = (ttResult.status === 'fulfilled' && ttResult.value.ok) ? await ttResult.value.json() : [];
+
+        // /api/reportei-posts sempre responde { posts, error, stale, staleAgeMin }
+        // (nunca um array solto) — mesmo quando o Reportei trava ou erra, pra essa
+        // fonte falhar sem derrubar o resto do dashboard.
+        let rpPosts = [];
+        if (rpResult.status === 'fulfilled' && rpResult.value.ok) {
+          const rpData = await rpResult.value.json();
+          rpPosts = rpData.posts || [];
+          reporteiStatus = {
+            unavailable: !!rpData.error && rpPosts.length === 0,
+            stale: !!rpData.stale,
+            staleAgeMin: rpData.staleAgeMin || 0,
+          };
+        } else {
+          reporteiStatus = { unavailable: true, stale: false, staleAgeMin: 0 };
+        }
+        renderReporteiBanner();
 
         // YouTube e TikTok: marca plataforma e pré-popula insights
         ytPosts.forEach(p => {
