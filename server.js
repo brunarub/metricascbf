@@ -236,9 +236,16 @@ app.get('/api/tiktok-posts', async (req, res) => {
   // esse log fecha o quadro mostrando o tempo total da requisição — útil pra confirmar
   // nos logs do Render se o timeout de 20s realmente está sendo acionado (e por causa
   // de qual conta) ou se o problema é outro.
+  //
+  // Confirmado nos logs do Render: a causa real do timeout/429 persistente não era
+  // renovação de token — era getTikTokPosts() buscando o HISTÓRICO COMPLETO de cada
+  // conta (brasileirao sozinha tem 672 vídeos = ~34 páginas) toda vez que o cache de
+  // 15 min expirava. limit=50 por padrão (mesmo valor de /api/youtube-posts) — cobre
+  // de sobra o uso normal do dashboard e corta drasticamente as requisições à TikTok.
+  const limit = req.query.limit ? parseInt(req.query.limit) : 50;
   const reqStart = Date.now();
   try {
-    const { posts, failedAccounts } = await withTimeout(getTikTokPosts(), 20000, 'tiktok-posts');
+    const { posts, failedAccounts } = await withTimeout(getTikTokPosts(limit), 20000, 'tiktok-posts');
     console.log(`/api/tiktok-posts OK em ${Date.now() - reqStart}ms${failedAccounts.length ? ` (parcial: ${failedAccounts.join(', ')})` : ''}`);
 
     if (failedAccounts.length === 0) {
@@ -480,9 +487,14 @@ app.get('/api/resumo', async (req, res) => {
       }
     }
 
-    // ── TikTok: getTikTokPosts() já traz tudo, só filtrar e somar ──
+    // ── TikTok: filtrar e somar por período ──
+    // 300 (mesma margem generosa usada em getYouTubePosts(300) logo abaixo) — o
+    // default de getTikTokPosts() é 50 (dashboard), baixo demais pra relatórios que
+    // podem pedir um período mais antigo; nunca usar limit indefinido aqui (ver
+    // comentário em getTikTokPosts em src/tiktok.js sobre por que isso derrubava a
+    // rota com rate limit da TikTok).
     try {
-      const { posts: ttPosts } = await getTikTokPosts();
+      const { posts: ttPosts } = await getTikTokPosts(300);
       const porConta = {};
       for (const p of ttPosts) {
         if (!dentroDoPeriodo(p.timestamp)) continue;

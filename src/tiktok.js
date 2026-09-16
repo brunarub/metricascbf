@@ -171,7 +171,17 @@ async function fetchTikTokVideos(accessToken, limit = null) {
 // de contas que falharam (timeout, rate limit, token inválido etc) — sem essa lista,
 // uma falha parcial (ou total) vira silenciosamente "0 posts", indistinguível de uma
 // conta que legitimamente não postou nada no período.
-async function getTikTokPosts() {
+//
+// limit = 50 por padrão (igual getYouTubePosts, ver src/youtube.js) — NÃO usar null
+// (histórico completo) aqui como fazíamos antes. Achado nos logs do Render: a conta
+// brasileirao sozinha tem 672 vídeos, e com 20 vídeos por página (máximo da API do
+// TikTok) isso é ~34 requisições sequenciais só pra essa conta, toda vez que o cache
+// de 15 min expira — 30-40s de chamadas em sequência, e é exatamente isso (não o
+// refresh de token, já verificado e descartado) que estoura o rate limit (429) da
+// TikTok nas 3 contas e trava a rota nos 20s de timeout. Quem precisar do histórico
+// completo (ex: /api/resumo em server.js, pra relatórios de período específico) deve
+// passar um limit explícito e generoso — nunca null.
+async function getTikTokPosts(limit = 50) {
   const tokens = readTokens();
   const allPosts = [];
   const failedAccounts = [];
@@ -218,7 +228,7 @@ async function getTikTokPosts() {
       // impreciso etc), renova reativamente como antes.
       let videos;
       try {
-        videos = await fetchTikTokVideos(access_token);
+        videos = await fetchTikTokVideos(access_token, limit);
       } catch (err) {
         if (err.response?.status === 401 && refresh_token) {
           const t0 = Date.now();
@@ -228,7 +238,7 @@ async function getTikTokPosts() {
           refresh_token = renewed.refresh_token || refresh_token;
           saveRenewed(access_token, refresh_token, renewed.expires_in);
           console.log(`TikTok: token de ${accountLabel} renovado (401 reativo) em ${Date.now() - t0}ms`);
-          videos = await fetchTikTokVideos(access_token);
+          videos = await fetchTikTokVideos(access_token, limit);
         } else {
           throw err;
         }
