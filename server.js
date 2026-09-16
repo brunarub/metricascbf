@@ -184,6 +184,10 @@ app.get('/auth/tiktok/callback', async (req, res) => {
       refresh_token: tokenData.refresh_token,
       open_id:       tokenData.open_id,
       connected_at:  new Date().toISOString(),
+      // access_token do TikTok dura 24h — guardar quando expira permite renovar
+      // proativamente em getTikTokPosts() (src/tiktok.js) em vez de descobrir só na
+      // hora (401) a cada chamada.
+      expires_at:    typeof tokenData.expires_in === 'number' ? Date.now() + tokenData.expires_in * 1000 : undefined,
     };
     // persistTokens salva no arquivo local E atualiza process.env.TIKTOK_TOKENS
     // na hora — sem isso, o processo em execução continuava com o token antigo
@@ -220,13 +224,19 @@ app.get('/api/tiktok-posts', async (req, res) => {
   if (ttCache.posts && (Date.now() - ttCache.ts) < CACHE_TTL) {
     return res.json({ posts: ttCache.posts, error: null, stale: false });
   }
+  // Timing de diagnóstico: getTikTokPosts() já loga por conta/fase (ver src/tiktok.js),
+  // esse log fecha o quadro mostrando o tempo total da requisição — útil pra confirmar
+  // nos logs do Render se o timeout de 20s realmente está sendo acionado (e por causa
+  // de qual conta) ou se o problema é outro.
+  const reqStart = Date.now();
   try {
     const { posts, failedAccounts } = await withTimeout(getTikTokPosts(), 20000, 'tiktok-posts');
     ttCache.posts = posts;
     ttCache.ts = Date.now();
+    console.log(`/api/tiktok-posts OK em ${Date.now() - reqStart}ms${failedAccounts.length ? ` (parcial: ${failedAccounts.join(', ')})` : ''}`);
     res.json({ posts, error: failedAccounts.length ? 'tiktok_partial' : null, stale: false, failedAccounts });
   } catch (err) {
-    console.error('Erro /api/tiktok-posts:', err.message);
+    console.error(`Erro /api/tiktok-posts (${Date.now() - reqStart}ms):`, err.message);
     if (ttCache.posts) {
       const staleAgeMin = Math.round((Date.now() - ttCache.ts) / 60000);
       return res.json({ posts: ttCache.posts, error: 'tiktok_timeout', stale: true, staleAgeMin });

@@ -100,6 +100,24 @@ async function refreshToken(refreshTokenStr) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// access_token do TikTok dura 24h (`expires_in`, ver doc oficial). Sem guardar isso,
+// o código só descobre que o token expirou reativamente (tenta, recebe 401, só então
+// renova) — um round-trip extra garantido toda vez que o token expira. Refresca
+// proativamente quando faltar menos de 10 min pro vencimento.
+const ACCESS_TOKEN_REFRESH_MARGIN_MS = 10 * 60 * 1000;
+
+function computeExpiresAt(expiresInSec) {
+  return typeof expiresInSec === 'number' ? Date.now() + expiresInSec * 1000 : undefined;
+}
+
+// Tokens salvos antes desse campo existir não têm `expires_at` — nesse caso não dá
+// pra saber se está perto de expirar, então só o 401 reativo decide (comportamento
+// de antes, preservado).
+function needsProactiveRefresh(tokenData) {
+  if (!tokenData.expires_at) return false;
+  return Date.now() >= (tokenData.expires_at - ACCESS_TOKEN_REFRESH_MARGIN_MS);
+}
+
 // Busca vídeos de uma conta usando o access_token, paginando conforme necessário.
 // limit = null busca TODO o histórico disponível da conta (segue os cursores até acabar,
 // igual já fazemos com o Instagram em src/instagram.js). A API do TikTok limita cada
@@ -164,30 +182,59 @@ async function getTikTokPosts() {
     if (!tokenData?.access_token) continue;
 
     if (i > 0) await sleep(500);
+    const acctStart = Date.now();
 
     try {
       let { access_token, refresh_token } = tokenData;
 
-      // Tenta buscar; se der 401, renova o token
+      // Salva o token renovado sem bloquear nessa chamada em espera do PUT pro
+      // Render — writeTokensLocal() e process.env.TIKTOK_TOKENS (o que importa pra
+      // essa e as próximas chamadas dentro do mesmo processo) já acontecem de forma
+      // síncrona antes do primeiro `await` dentro de persistTokens(); só o PUT na
+      // API do Render (rede externa, timeout de 15s, best-effort — sobrevive a um
+      // redeploy mas não é o que essa requisição precisa esperar) fica em segundo
+      // plano. Sem isso, uma renovação de token podia empurrar essa requisição bem
+      // perto (ou além) do timeout de 20s de /api/tiktok-posts.
+      const saveRenewed = (newAccessToken, newRefreshToken, expiresIn) => {
+        const updated = readTokens();
+        updated[accountLabel] = { ...tokenData, access_token: newAccessToken, refresh_token: newRefreshToken, expires_at: computeExpiresAt(expiresIn) };
+        persistTokens(updated);
+      };
+
+      // Renova proativamente se o token já está perto de expirar — evita o
+      // round-trip garantido de "tenta com token vencido, recebe 401, só então
+      // renova" toda vez que o token expira (access_token dura só 24h).
+      if (needsProactiveRefresh(tokenData) && refresh_token) {
+        const t0 = Date.now();
+        console.log(`TikTok: renovando token de ${accountLabel} proativamente (perto de expirar)...`);
+        const renewed = await refreshToken(refresh_token);
+        access_token = renewed.access_token;
+        refresh_token = renewed.refresh_token || refresh_token;
+        saveRenewed(access_token, refresh_token, renewed.expires_in);
+        console.log(`TikTok: token de ${accountLabel} renovado (proativo) em ${Date.now() - t0}ms`);
+      }
+
+      // Tenta buscar; se ainda assim der 401 (token revogado, relógio de expiração
+      // impreciso etc), renova reativamente como antes.
       let videos;
       try {
         videos = await fetchTikTokVideos(access_token);
       } catch (err) {
         if (err.response?.status === 401 && refresh_token) {
-          console.log(`TikTok: renovando token de ${accountLabel}...`);
+          const t0 = Date.now();
+          console.log(`TikTok: renovando token de ${accountLabel} (401 reativo)...`);
           const renewed = await refreshToken(refresh_token);
           access_token = renewed.access_token;
           refresh_token = renewed.refresh_token || refresh_token;
-          // Persiste token renovado
-          const updated = readTokens();
-          updated[accountLabel] = { ...tokenData, access_token, refresh_token };
-          await persistTokens(updated);
+          saveRenewed(access_token, refresh_token, renewed.expires_in);
+          console.log(`TikTok: token de ${accountLabel} renovado (401 reativo) em ${Date.now() - t0}ms`);
           videos = await fetchTikTokVideos(access_token);
         } else {
           throw err;
         }
       }
 
+      console.log(`TikTok: ${accountLabel} OK — ${videos.length} vídeos em ${Date.now() - acctStart}ms`);
       for (const v of videos) {
         allPosts.push({
           id:             'tt_' + v.id,
@@ -207,7 +254,7 @@ async function getTikTokPosts() {
         });
       }
     } catch (err) {
-      console.error(`Erro TikTok ${accountLabel} (status ${err.response?.status}):`, err.response?.data || err.message);
+      console.error(`Erro TikTok ${accountLabel} (status ${err.response?.status}, ${Date.now() - acctStart}ms):`, err.response?.data || err.message);
       failedAccounts.push(accountLabel);
     }
   }
