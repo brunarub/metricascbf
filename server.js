@@ -17,7 +17,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Cache em memória — 15 minutos
-const cache = { posts: null, ts: 0 };
+const cache = { posts: null, ts: 0, failedAccounts: [] };
 const CACHE_TTL = 15 * 60 * 1000;
 
 function isCacheValid() {
@@ -54,10 +54,18 @@ app.get('/api/accounts', (req, res) => {
 });
 
 // GET /api/posts?limit=25 — posts básicos de todas as contas
+// Resposta sempre no formato { posts, error, stale, failedAccounts } (mesmo padrão das
+// outras 3 fontes) — uma conta que falha (timeout, token expirado etc) é reportada em
+// `failedAccounts`, não descartada em silêncio como se simplesmente não tivesse posts.
 app.get('/api/posts', async (req, res) => {
   try {
     if (isCacheValid()) {
-      return res.json(cache.posts);
+      return res.json({
+        posts: cache.posts,
+        error: cache.failedAccounts.length ? 'instagram_partial' : null,
+        stale: false,
+        failedAccounts: cache.failedAccounts,
+      });
     }
 
     const accounts = getAccounts();
@@ -68,6 +76,7 @@ app.get('/api/posts', async (req, res) => {
     // Sem limit na query = busca todo o histórico disponível de cada conta
     const limit = req.query.limit ? parseInt(req.query.limit) : null;
     const allPosts = [];
+    const failedAccounts = [];
 
     for (const account of accounts) {
       try {
@@ -89,6 +98,7 @@ app.get('/api/posts', async (req, res) => {
         });
       } catch (err) {
         console.error(`Erro ao buscar posts de ${account.label}:`, err.response?.data || err.message);
+        failedAccounts.push(account.label);
       }
     }
 
@@ -97,8 +107,9 @@ app.get('/api/posts', async (req, res) => {
 
     cache.posts = allPosts;
     cache.ts = Date.now();
+    cache.failedAccounts = failedAccounts;
 
-    res.json(allPosts);
+    res.json({ posts: allPosts, error: failedAccounts.length ? 'instagram_partial' : null, stale: false, failedAccounts });
   } catch (err) {
     console.error('Erro /api/posts:', err);
     res.status(500).json({ error: err.message });
@@ -197,22 +208,30 @@ app.get('/auth/tiktok/callback', async (req, res) => {
 });
 
 // GET /api/tiktok-posts — vídeos das contas TikTok conectadas
+// Resposta sempre no formato { posts, error, stale, staleAgeMin } (mesmo padrão do
+// /api/reportei-posts) — nunca um array solto. Uma chamada que falha/trava (timeout,
+// rate limit, ERR_ABORTED no front-end) não pode virar silenciosamente "sem posts";
+// se já existir um cache anterior, ele é reaproveitado e marcado como `stale`.
 const ttCache = { posts: null, ts: 0 };
 app.get('/api/tiktok-posts', async (req, res) => {
+  if (!process.env.TIKTOK_CLIENT_KEY) return res.json({ posts: [], error: null, stale: false });
+  const tokens = readTokens();
+  if (!Object.keys(tokens).length) return res.json({ posts: [], error: null, stale: false });
+  if (ttCache.posts && (Date.now() - ttCache.ts) < CACHE_TTL) {
+    return res.json({ posts: ttCache.posts, error: null, stale: false });
+  }
   try {
-    if (!process.env.TIKTOK_CLIENT_KEY) return res.json([]);
-    const tokens = readTokens();
-    if (!Object.keys(tokens).length) return res.json([]);
-    if (ttCache.posts && (Date.now() - ttCache.ts) < CACHE_TTL) {
-      return res.json(ttCache.posts);
-    }
-    const posts = await getTikTokPosts();
+    const { posts, failedAccounts } = await withTimeout(getTikTokPosts(), 20000, 'tiktok-posts');
     ttCache.posts = posts;
     ttCache.ts = Date.now();
-    res.json(posts);
+    res.json({ posts, error: failedAccounts.length ? 'tiktok_partial' : null, stale: false, failedAccounts });
   } catch (err) {
-    console.error('Erro /api/tiktok-posts:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Erro /api/tiktok-posts:', err.message);
+    if (ttCache.posts) {
+      const staleAgeMin = Math.round((Date.now() - ttCache.ts) / 60000);
+      return res.json({ posts: ttCache.posts, error: 'tiktok_timeout', stale: true, staleAgeMin });
+    }
+    res.json({ posts: [], error: 'tiktok_timeout', stale: false });
   }
 });
 
@@ -285,21 +304,27 @@ app.get('/api/reportei-posts', async (req, res) => {
 // ─── YouTube ──────────────────────────────────────────────────────────────────
 
 // GET /api/youtube-posts?limit=50 — vídeos dos canais YouTube configurados
+// Mesmo formato de resposta { posts, error, stale, staleAgeMin } que /api/tiktok-posts
+// e /api/reportei-posts — ver comentário acima.
 const ytCache = { posts: null, ts: 0 };
 app.get('/api/youtube-posts', async (req, res) => {
+  if (!process.env.YT_API_KEY) return res.json({ posts: [], error: null, stale: false });
+  if (ytCache.posts && (Date.now() - ytCache.ts) < CACHE_TTL) {
+    return res.json({ posts: ytCache.posts, error: null, stale: false });
+  }
+  const limit = req.query.limit ? parseInt(req.query.limit) : 50;
   try {
-    if (!process.env.YT_API_KEY) return res.json([]);
-    if (ytCache.posts && (Date.now() - ytCache.ts) < CACHE_TTL) {
-      return res.json(ytCache.posts);
-    }
-    const limit = req.query.limit ? parseInt(req.query.limit) : 50;
-    const posts = await getYouTubePosts(limit);
+    const { posts, failedAccounts } = await withTimeout(getYouTubePosts(limit), 20000, 'youtube-posts');
     ytCache.posts = posts;
     ytCache.ts = Date.now();
-    res.json(posts);
+    res.json({ posts, error: failedAccounts.length ? 'youtube_partial' : null, stale: false, failedAccounts });
   } catch (err) {
-    console.error('Erro /api/youtube-posts:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Erro /api/youtube-posts:', err.message);
+    if (ytCache.posts) {
+      const staleAgeMin = Math.round((Date.now() - ytCache.ts) / 60000);
+      return res.json({ posts: ytCache.posts, error: 'youtube_timeout', stale: true, staleAgeMin });
+    }
+    res.json({ posts: [], error: 'youtube_timeout', stale: false });
   }
 });
 
@@ -401,7 +426,7 @@ app.get('/api/resumo', async (req, res) => {
 
     // ── TikTok: getTikTokPosts() já traz tudo, só filtrar e somar ──
     try {
-      const ttPosts = await getTikTokPosts();
+      const { posts: ttPosts } = await getTikTokPosts();
       const porConta = {};
       for (const p of ttPosts) {
         if (!dentroDoPeriodo(p.timestamp)) continue;
@@ -420,7 +445,7 @@ app.get('/api/resumo', async (req, res) => {
     // Nota: 300 é uma margem generosa pra garantir que cobre qualquer período razoável
     // de relatório sem deixar de trazer vídeos antigos o suficiente.
     try {
-      const ytPosts = await getYouTubePosts(300);
+      const { posts: ytPosts } = await getYouTubePosts(300);
       const porConta = {};
       for (const p of ytPosts) {
         if (!dentroDoPeriodo(p.timestamp)) continue;

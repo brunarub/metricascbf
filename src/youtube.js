@@ -78,11 +78,14 @@ async function getVideoDetails(videoIds) {
   return all;
 }
 
-// Retorna posts normalizados de todos os canais YouTube configurados.
+// Retorna posts normalizados de todos os canais YouTube configurados, junto com a
+// lista de canais que falharam — sem isso, uma falha (timeout, quota da API etc)
+// vira silenciosamente "0 vídeos", indistinguível de um canal sem posts no período.
 // media_type = 'SHORTS' se duração ≤ 60s, 'VIDEO' caso contrário.
 async function getYouTubePosts(maxResults = 50) {
   const accounts = getYouTubeAccounts();
   const allPosts = [];
+  const failedAccounts = [];
 
   for (const account of accounts) {
     try {
@@ -119,11 +122,12 @@ async function getYouTubePosts(maxResults = 50) {
       }
     } catch (err) {
       console.error(`Erro YouTube ${account.label}:`, err.response?.data?.error || err.message);
+      failedAccounts.push(account.label);
     }
   }
 
   allPosts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return allPosts;
+  return { posts: allPosts, failedAccounts };
 }
 
 module.exports = { getYouTubePosts, getYouTubeAccounts };

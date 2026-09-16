@@ -72,6 +72,11 @@
     .platform-cmp-value { font-size: 1.5rem; font-weight: 800; color: var(--navy); }
     .platform-cmp-sub { font-size: 0.75rem; color: var(--navy-soft); font-weight: 600; margin-top: 6px; }
     .platform-cmp-empty { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--navy-soft); font-size: 0.85rem; font-weight: 600; background: var(--bg); border: 1px solid var(--navy-border); border-radius: 10px; }
+    /* Card "indisponível" — visualmente diferente de um card com 0 no período, pra não
+       parecer que a rede simplesmente não postou nada. */
+    .platform-cmp-card.is-down { border-style: dashed; border-top-style: solid; background: repeating-linear-gradient(135deg, var(--bg), var(--bg) 10px, rgba(224,184,61,0.08) 10px, rgba(224,184,61,0.08) 20px); }
+    .platform-cmp-down-msg { font-size: 0.8rem; font-weight: 700; color: #6b5106; padding: 8px 0; }
+    .kpi-value.partial { color: #6b5106; }
 
     /* Modo cliente (?cliente=1) — esconde ferramentas internas, mantém só o que é relevante compartilhar */
     body.client-mode #search,
@@ -150,6 +155,7 @@
     .state-msg p { font-size: 0.9rem; font-weight: 600; }
     .phase-badge { background: var(--bg-alt); border: 1px solid var(--navy-border); color: var(--navy); padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; margin-left: 12px; }
     .phase-badge.loading { background: rgba(0,180,216,0.18); border-color: var(--primary); color: var(--primary-ink); }
+    .phase-badge.partial { background: #fff4d6; border-color: #e0b83d; color: #6b5106; }
     #reportei-banner { background: #fff4d6; border: 1px solid #e0b83d; color: #6b5106; padding: 10px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; margin-bottom: 16px; }
     #reportei-banner[hidden] { display: none; }
 
@@ -306,10 +312,22 @@
     let sortCol = 'timestamp';
     let sortDir = -1;
     let phase = 1;
-    // Status da fonte Reportei (Brasileirão/Seleção) — populado em loadPosts().
-    // Usado só pra avisar visualmente quando essa fonte específica falhar/travar,
-    // sem impedir o resto do dashboard (Instagram/YouTube/TikTok) de carregar.
-    let reporteiStatus = { unavailable: false, stale: false, staleAgeMin: 0 };
+    // Status de cada uma das 4 fontes (posts, youtube, tiktok, reportei) — populado em
+    // loadPosts(). Uma fonte com posts=[] só conta como "ok" (0 posts no período de
+    // verdade); se a consulta falhou (timeout/abort/erro), ela fica marcada como
+    // `unavailable` mesmo que o array retornado esteja vazio, pra nunca confundir
+    // "sem posts" com "não consegui carregar" (ver /api/*-posts em server.js, que
+    // agora sempre respondem { posts, error, stale, staleAgeMin }).
+    let sourceStatus = {
+      instagram: { unavailable: false, stale: false, staleAgeMin: 0 },
+      youtube:   { unavailable: false, stale: false, staleAgeMin: 0 },
+      tiktok:    { unavailable: false, stale: false, staleAgeMin: 0 },
+      reportei:  { unavailable: false, stale: false, staleAgeMin: 0 },
+    };
+    const SOURCE_LABELS = { instagram: 'Instagram', youtube: 'YouTube', tiktok: 'TikTok', reportei: 'Brasileirão/Seleção (Reportei)' };
+    function anySourceDown() {
+      return Object.values(sourceStatus).some(s => s.unavailable || s.stale);
+    }
 
     // fetch com timeout próprio no front-end — segunda camada de proteção: mesmo
     // se o backend nunca resolver por algum motivo inesperado, a página não fica
@@ -320,17 +338,66 @@
       return fetch(url, { ...(opts || {}), signal: controller.signal }).finally(() => clearTimeout(timer));
     }
 
-    function renderReporteiBanner() {
+    // Uma falha isolada (ERR_ABORTED, timeout, rede instável) não deve virar
+    // "indisponível" de cara — na reprodução ao vivo desse bug, uma 2ª tentativa
+    // poucos segundos depois já veio com os dados normais (o backend segue
+    // processando em segundo plano e populando seu próprio cache mesmo quando o
+    // front-end desiste antes). Por isso: 1 retry automático antes de desistir de
+    // verdade, por fonte, sem bloquear as outras 3.
+    async function fetchSourceWithRetry(url, retries = 1, retryDelayMs = 2500) {
+      let lastErr;
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const res = await fetchWithTimeout(url);
+          if (res.ok) return res;
+          lastErr = new Error(`HTTP ${res.status}`);
+        } catch (err) {
+          lastErr = err;
+        }
+        if (attempt < retries) await new Promise(r => setTimeout(r, retryDelayMs));
+      }
+      throw lastErr;
+    }
+
+    // Extrai { posts, unavailable, stale, staleAgeMin } de um resultado do
+    // Promise.allSettled contra uma das 4 rotas /api/*-posts — todas respondem no
+    // mesmo formato { posts, error, stale, staleAgeMin }.
+    async function parseSourceResult(result) {
+      if (result.status !== 'fulfilled') {
+        return { posts: [], unavailable: true, stale: false, staleAgeMin: 0 };
+      }
+      try {
+        const data = await result.value.json();
+        const posts = data.posts || [];
+        return {
+          posts,
+          unavailable: !!data.error && posts.length === 0,
+          stale: !!data.stale,
+          staleAgeMin: data.staleAgeMin || 0,
+        };
+      } catch (err) {
+        return { posts: [], unavailable: true, stale: false, staleAgeMin: 0 };
+      }
+    }
+
+    function renderSourceBanner() {
       const el = document.getElementById('reportei-banner');
       if (!el) return;
-      if (!reporteiStatus.unavailable && !reporteiStatus.stale) {
+      const down = [];
+      const stale = [];
+      Object.entries(sourceStatus).forEach(([key, s]) => {
+        if (s.stale) stale.push(`${SOURCE_LABELS[key]} (${s.staleAgeMin} min atrás)`);
+        else if (s.unavailable) down.push(SOURCE_LABELS[key]);
+      });
+      if (!down.length && !stale.length) {
         el.hidden = true;
         return;
       }
       el.hidden = false;
-      el.textContent = reporteiStatus.stale
-        ? `⚠️ Brasileirão/Seleção: Reportei não respondeu agora, mostrando o último dado disponível (${reporteiStatus.staleAgeMin} min atrás).`
-        : '⚠️ Brasileirão/Seleção indisponível no momento (Reportei não respondeu) — o restante do dashboard segue normal.';
+      const bits = [];
+      if (down.length) bits.push(`${down.join(', ')} indisponível no momento`);
+      if (stale.length) bits.push(`mostrando último dado disponível pra ${stale.join(', ')}`);
+      el.textContent = `⚠️ ${bits.join(' — ')}. O restante do dashboard segue normal.`;
     }
 
     // Período padrão: últimos 7 dias, sempre — assim o Comparativo por Rede e os
@@ -631,6 +698,7 @@
         // Impressões Instagram (conta com Stories) — respeitando aba ativa
         let igTotal = 0;
         const igByAccount = {};
+        let igFailedAccounts = [];
         if (platformFilter !== 'youtube' && platformFilter !== 'tiktok') {
           const accountParam = activeTab !== 'todos' ? `&account=${activeTab}` : '';
           const res = await fetch(`/api/account-insights?since=${since}&until=${until}${accountParam}`);
@@ -638,6 +706,11 @@
           const data = await res.json();
           if (!data.error) {
             Object.assign(igByAccount, data.byAccount);
+            // Uma conta que falhou vem como `null` (ver /api/account-insights em
+            // server.js) — diferente de uma conta com 0 impressões de verdade. Tratar
+            // null como 0 no total é exatamente o bug: uma falha vira silenciosamente
+            // "impressões zero" em vez de derrubar a confiabilidade do total.
+            igFailedAccounts = Object.entries(igByAccount).filter(([, v]) => v === null).map(([label]) => label);
 
             // account-insights já traz Brasileirão e Seleção (via métrica agregada do
             // Reportei, ver src/reportei.js) junto com as contas de acesso direto à
@@ -652,7 +725,18 @@
         if (fetchId !== accountInsightsFetchId) return;
 
         const grandTotal = igTotal + ytViews + ttViews;
-        el.textContent = fmt(grandTotal);
+
+        // Uma fonte indisponível não pode fazer o total geral parecer completo — marca
+        // visualmente como parcial e lista o que está faltando, em vez de somar 0 em
+        // silêncio pra TikTok/YouTube/contas de Instagram que falharam.
+        const missing = [];
+        if (platformFilter !== 'instagram' && sourceStatus.tiktok.unavailable) missing.push('TikTok');
+        if (platformFilter !== 'instagram' && sourceStatus.youtube.unavailable) missing.push('YouTube');
+        igFailedAccounts.forEach(label => missing.push(`Instagram (${label})`));
+
+        el.textContent = fmt(grandTotal) + (missing.length ? ' *' : '');
+        el.classList.toggle('partial', missing.length > 0);
+        el.title = missing.length ? `Total parcial — não inclui: ${missing.join(', ')} (indisponível no momento)` : '';
 
         // Legenda
         const parts = [];
@@ -664,7 +748,9 @@
         }
         if (ytViews > 0) parts.push(`YouTube: ${fmt(ytViews)}`);
         if (ttViews > 0) parts.push(`TikTok: ${fmt(ttViews)}`);
-        sub.textContent = parts.length ? parts.join(' · ') : 'Feed + Reels + Stories + YouTube + TikTok';
+        sub.textContent = missing.length
+          ? `⚠️ Parcial — sem ${missing.join(', ')}`
+          : (parts.length ? parts.join(' · ') : 'Feed + Reels + Stories + YouTube + TikTok');
 
       } catch (e) {
         if (fetchId !== accountInsightsFetchId) return;
@@ -742,7 +828,17 @@
 
       const curr = grouped(posts);
       const prev = grouped(prevPosts);
-      const platforms = Object.keys(curr).length ? Object.keys(curr) : Object.keys(prev);
+      const platformSet = new Set(Object.keys(curr).length ? Object.keys(curr) : Object.keys(prev));
+
+      // Uma rede indisponível não pode simplesmente sumir do comparativo — isso parece
+      // "0 posts no período" quando na real a consulta falhou. Selecão depende 100% do
+      // Reportei (nenhum post dela vem por outra fonte), então força o card mesmo com
+      // 0 posts agrupados quando o Reportei está fora do ar.
+      const SOURCE_FOR_PLATFORM = { tiktok: 'tiktok', youtube: 'youtube', selecao: 'reportei' };
+      Object.entries(SOURCE_FOR_PLATFORM).forEach(([plat, srcKey]) => {
+        if (sourceStatus[srcKey]?.unavailable) platformSet.add(plat);
+      });
+      const platforms = [...platformSet];
 
       if (!platforms.length) {
         grid.innerHTML = '<div class="platform-cmp-empty">Sem posts no período selecionado.</div>';
@@ -750,8 +846,20 @@
       }
 
       grid.innerHTML = platforms.map(plat => {
+        const downSrc = SOURCE_FOR_PLATFORM[plat];
+        if (downSrc && sourceStatus[downSrc]?.unavailable) {
+          return `<div class="platform-cmp-card plat-${plat} is-down">
+            <div class="platform-cmp-label">${PLATFORM_LABEL[plat] || plat}</div>
+            <div class="platform-cmp-down-msg">⚠️ ${(PLATFORM_LABEL[plat] || plat).replace(/^\S+\s/, '')} indisponível no momento</div>
+          </div>`;
+        }
         const c = curr[plat] || { posts: 0, views: 0, interactions: 0 };
         const p = prev[plat] || { posts: 0, views: 0, interactions: 0 };
+        // Brasileirão só tem posts de Instagram via Reportei — se ele estiver fora do
+        // ar, o card "Instagram" segue de pé (Brasileiras/Copa do Brasil vêm direto da
+        // Meta), mas com um aviso de que os números não incluem Brasileirão agora.
+        const partialNote = (plat === 'instagram' && sourceStatus.reportei.unavailable)
+          ? '<div class="platform-cmp-sub" style="color:#6b5106">⚠️ parcial — Brasileirão indisponível</div>' : '';
         return `<div class="platform-cmp-card plat-${plat}">
           <div class="platform-cmp-label">${PLATFORM_LABEL[plat] || plat}</div>
           <div class="platform-cmp-metric">
@@ -765,6 +873,7 @@
             ${pctCompareHtml(c.interactions, p.interactions)}
           </div>
           <div class="platform-cmp-sub">${fmt(c.posts)} posts no período</div>
+          ${partialNote}
         </div>`;
       }).join('');
     }
@@ -962,36 +1071,38 @@
     async function loadPosts() {
       try {
         const [igResult, ytResult, ttResult, rpResult] = await Promise.allSettled([
-          fetchWithTimeout('/api/posts'),
-          fetchWithTimeout('/api/youtube-posts'),
-          fetchWithTimeout('/api/tiktok-posts'),
-          fetchWithTimeout('/api/reportei-posts'),
+          fetchSourceWithRetry('/api/posts'),
+          fetchSourceWithRetry('/api/youtube-posts'),
+          fetchSourceWithRetry('/api/tiktok-posts'),
+          fetchSourceWithRetry('/api/reportei-posts'),
         ]);
 
-        if (igResult.status !== 'fulfilled' || !igResult.value.ok) {
-          const reason = igResult.status === 'fulfilled' ? await igResult.value.text() : igResult.reason?.message;
-          throw new Error(reason || 'Falha ao carregar posts do Instagram');
-        }
-        const igPosts = await igResult.value.json();
-        const ytPosts = (ytResult.status === 'fulfilled' && ytResult.value.ok) ? await ytResult.value.json() : [];
-        const ttPosts = (ttResult.status === 'fulfilled' && ttResult.value.ok) ? await ttResult.value.json() : [];
+        // Todas as 4 rotas respondem { posts, error, stale, staleAgeMin } (nunca um
+        // array solto) — mesmo quando uma fonte trava ou erra, pra essa fonte falhar
+        // de forma visível e sem derrubar as outras 3.
+        const [igParsed, ytParsed, ttParsed, rpParsed] = await Promise.all(
+          [igResult, ytResult, ttResult, rpResult].map(parseSourceResult)
+        );
 
-        // /api/reportei-posts sempre responde { posts, error, stale, staleAgeMin }
-        // (nunca um array solto) — mesmo quando o Reportei trava ou erra, pra essa
-        // fonte falhar sem derrubar o resto do dashboard.
-        let rpPosts = [];
-        if (rpResult.status === 'fulfilled' && rpResult.value.ok) {
-          const rpData = await rpResult.value.json();
-          rpPosts = rpData.posts || [];
-          reporteiStatus = {
-            unavailable: !!rpData.error && rpPosts.length === 0,
-            stale: !!rpData.stale,
-            staleAgeMin: rpData.staleAgeMin || 0,
-          };
-        } else {
-          reporteiStatus = { unavailable: true, stale: false, staleAgeMin: 0 };
+        // Instagram continua sendo a única fonte obrigatória (é o dado principal do
+        // dashboard) — só derruba a página inteira se não sobrou NENHUM post (nem
+        // do cache do servidor).
+        if (igParsed.unavailable && igParsed.posts.length === 0) {
+          throw new Error('Falha ao carregar posts do Instagram');
         }
-        renderReporteiBanner();
+
+        const igPosts = igParsed.posts;
+        const ytPosts = ytParsed.posts;
+        const ttPosts = ttParsed.posts;
+        const rpPosts = rpParsed.posts;
+
+        sourceStatus = {
+          instagram: { unavailable: igParsed.unavailable, stale: igParsed.stale, staleAgeMin: igParsed.staleAgeMin },
+          youtube:   { unavailable: ytParsed.unavailable, stale: ytParsed.stale, staleAgeMin: ytParsed.staleAgeMin },
+          tiktok:    { unavailable: ttParsed.unavailable, stale: ttParsed.stale, staleAgeMin: ttParsed.staleAgeMin },
+          reportei:  { unavailable: rpParsed.unavailable, stale: rpParsed.stale, staleAgeMin: rpParsed.staleAgeMin },
+        };
+        renderSourceBanner();
 
         // YouTube e TikTok: marca plataforma e pré-popula insights
         ytPosts.forEach(p => {
@@ -1057,8 +1168,14 @@
       }
 
       phase = 2;
-      document.getElementById('phase-indicator').textContent = '✅ Métricas completas';
-      document.getElementById('phase-indicator').className = 'phase-badge';
+      if (anySourceDown()) {
+        const down = Object.entries(sourceStatus).filter(([, s]) => s.unavailable || s.stale).map(([k]) => SOURCE_LABELS[k]);
+        document.getElementById('phase-indicator').textContent = `⚠️ Métricas parciais — ${down.join(', ')} indisponível`;
+        document.getElementById('phase-indicator').className = 'phase-badge partial';
+      } else {
+        document.getElementById('phase-indicator').textContent = '✅ Métricas completas';
+        document.getElementById('phase-indicator').className = 'phase-badge';
+      }
       renderTable();
     }
 

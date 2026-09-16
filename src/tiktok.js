@@ -149,10 +149,14 @@ async function fetchTikTokVideos(accessToken, limit = null) {
   return limit ? videos.slice(0, limit) : videos;
 }
 
-// Retorna posts normalizados de todas as contas TikTok conectadas
+// Retorna posts normalizados de todas as contas TikTok conectadas, junto com a lista
+// de contas que falharam (timeout, rate limit, token inválido etc) — sem essa lista,
+// uma falha parcial (ou total) vira silenciosamente "0 posts", indistinguível de uma
+// conta que legitimamente não postou nada no período.
 async function getTikTokPosts() {
   const tokens = readTokens();
   const allPosts = [];
+  const failedAccounts = [];
 
   const entries = Object.entries(tokens);
   for (let i = 0; i < entries.length; i++) {
@@ -204,11 +208,12 @@ async function getTikTokPosts() {
       }
     } catch (err) {
       console.error(`Erro TikTok ${accountLabel} (status ${err.response?.status}):`, err.response?.data || err.message);
+      failedAccounts.push(accountLabel);
     }
   }
 
   allPosts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return allPosts;
+  return { posts: allPosts, failedAccounts };
 }
 
 module.exports = { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal, persistTokens };
