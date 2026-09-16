@@ -216,6 +216,14 @@ app.get('/auth/tiktok/callback', async (req, res) => {
 // /api/reportei-posts) — nunca um array solto. Uma chamada que falha/trava (timeout,
 // rate limit, ERR_ABORTED no front-end) não pode virar silenciosamente "sem posts";
 // se já existir um cache anterior, ele é reaproveitado e marcado como `stale`.
+//
+// ttCache.posts só pode ser gravado quando a busca deu 100% certo (nenhuma conta em
+// failedAccounts) — é o que garante a invariante abaixo: se `ttCache.posts` existe,
+// ele é sempre um resultado limpo, nunca um `[]` que na real veio de uma falha. Uma
+// versão anterior gravava `ttCache.posts = posts` incondicionalmente (inclusive
+// quando `posts` era `[]` por TODAS as contas terem falhado); como array vazio ainda
+// é truthy em JS, o cache-hit em cima devolvia `error: null` por até 15 min depois de
+// uma falha real — o TikTok sumia em silêncio de novo, regressão pro bug original.
 const ttCache = { posts: null, ts: 0 };
 app.get('/api/tiktok-posts', async (req, res) => {
   if (!process.env.TIKTOK_CLIENT_KEY) return res.json({ posts: [], error: null, stale: false });
@@ -231,10 +239,23 @@ app.get('/api/tiktok-posts', async (req, res) => {
   const reqStart = Date.now();
   try {
     const { posts, failedAccounts } = await withTimeout(getTikTokPosts(), 20000, 'tiktok-posts');
-    ttCache.posts = posts;
-    ttCache.ts = Date.now();
     console.log(`/api/tiktok-posts OK em ${Date.now() - reqStart}ms${failedAccounts.length ? ` (parcial: ${failedAccounts.join(', ')})` : ''}`);
-    res.json({ posts, error: failedAccounts.length ? 'tiktok_partial' : null, stale: false, failedAccounts });
+
+    if (failedAccounts.length === 0) {
+      ttCache.posts = posts;
+      ttCache.ts = Date.now();
+      return res.json({ posts, error: null, stale: false });
+    }
+
+    // Falha parcial (algumas contas ok, outras não) — nunca vira o cache "bom" (ver
+    // comentário acima). Se já existe um resultado limpo anterior, serve ele marcado
+    // como stale (mesmo padrão do /api/reportei-posts); senão devolve o parcial de
+    // agora mesmo, sempre com `error` setado — nunca `null` quando alguma conta falhou.
+    if (ttCache.posts) {
+      const staleAgeMin = Math.round((Date.now() - ttCache.ts) / 60000);
+      return res.json({ posts: ttCache.posts, error: 'tiktok_partial', stale: true, staleAgeMin, failedAccounts });
+    }
+    res.json({ posts, error: 'tiktok_partial', stale: false, failedAccounts });
   } catch (err) {
     console.error(`Erro /api/tiktok-posts (${Date.now() - reqStart}ms):`, err.message);
     if (ttCache.posts) {
@@ -287,6 +308,12 @@ app.get('/conectar-tiktok', (req, res) => {
 // quando o Reportei trava ou erra. A API do Reportei já ficou minutos sem responder
 // (nem erro nem timeout) pras contas Brasileirão/Seleção, o que travava a página
 // inteira em "Carregando..." (o front-end esperava as 4 fontes num Promise.all).
+//
+// rpCache.posts só pode ser gravado quando a busca deu 100% certo (nenhuma conta em
+// failedAccounts) — mesma invariante do ttCache/ytCache abaixo. Uma falha parcial
+// nunca pode virar cache "bom": um `[]` vindo de falha ainda é truthy em JS, então um
+// cache-hit em cima dele devolveria `error: null` por até 15 min como se fosse
+// sucesso — foi exatamente essa regressão que aconteceu com o TikTok.
 const rpCache = { posts: null, ts: 0 };
 app.get('/api/reportei-posts', async (req, res) => {
   if (!process.env.REPORTEI_API_TOKEN) return res.json({ posts: [], error: null, stale: false });
@@ -297,10 +324,19 @@ app.get('/api/reportei-posts', async (req, res) => {
     // Limite duro de 20s pra essa rota, além do timeout de 15s já embutido em
     // cada chamada axios dentro de getReporteiPosts() (ver src/reportei.js) —
     // segunda camada de proteção caso a primeira falhe por algum motivo.
-    const posts = await withTimeout(getReporteiPosts(), 20000, 'reportei-posts');
-    rpCache.posts = posts;
-    rpCache.ts = Date.now();
-    res.json({ posts, error: null, stale: false });
+    const { posts, failedAccounts } = await withTimeout(getReporteiPosts(), 20000, 'reportei-posts');
+
+    if (failedAccounts.length === 0) {
+      rpCache.posts = posts;
+      rpCache.ts = Date.now();
+      return res.json({ posts, error: null, stale: false });
+    }
+
+    if (rpCache.posts) {
+      const staleAgeMin = Math.round((Date.now() - rpCache.ts) / 60000);
+      return res.json({ posts: rpCache.posts, error: 'reportei_partial', stale: true, staleAgeMin, failedAccounts });
+    }
+    res.json({ posts, error: 'reportei_partial', stale: false, failedAccounts });
   } catch (err) {
     console.error('Erro /api/reportei-posts:', err.message);
     if (rpCache.posts) {
@@ -315,7 +351,8 @@ app.get('/api/reportei-posts', async (req, res) => {
 
 // GET /api/youtube-posts?limit=50 — vídeos dos canais YouTube configurados
 // Mesmo formato de resposta { posts, error, stale, staleAgeMin } que /api/tiktok-posts
-// e /api/reportei-posts — ver comentário acima.
+// e /api/reportei-posts — ver comentário acima. Mesma invariante de cache também:
+// ytCache.posts só é gravado num resultado 100% limpo (ver comentário no ttCache).
 const ytCache = { posts: null, ts: 0 };
 app.get('/api/youtube-posts', async (req, res) => {
   if (!process.env.YT_API_KEY) return res.json({ posts: [], error: null, stale: false });
@@ -325,9 +362,18 @@ app.get('/api/youtube-posts', async (req, res) => {
   const limit = req.query.limit ? parseInt(req.query.limit) : 50;
   try {
     const { posts, failedAccounts } = await withTimeout(getYouTubePosts(limit), 20000, 'youtube-posts');
-    ytCache.posts = posts;
-    ytCache.ts = Date.now();
-    res.json({ posts, error: failedAccounts.length ? 'youtube_partial' : null, stale: false, failedAccounts });
+
+    if (failedAccounts.length === 0) {
+      ytCache.posts = posts;
+      ytCache.ts = Date.now();
+      return res.json({ posts, error: null, stale: false });
+    }
+
+    if (ytCache.posts) {
+      const staleAgeMin = Math.round((Date.now() - ytCache.ts) / 60000);
+      return res.json({ posts: ytCache.posts, error: 'youtube_partial', stale: true, staleAgeMin, failedAccounts });
+    }
+    res.json({ posts, error: 'youtube_partial', stale: false, failedAccounts });
   } catch (err) {
     console.error('Erro /api/youtube-posts:', err.message);
     if (ytCache.posts) {

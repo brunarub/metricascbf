@@ -104,10 +104,15 @@ async function fetchAccountPosts(accountLabel, integrationId, daysBack) {
   });
 }
 
-// Retorna posts normalizados de todas as contas configuradas (Brasileirão + Seleção).
+// Retorna posts normalizados de todas as contas configuradas (Brasileirão + Seleção),
+// junto com a lista de contas que falharam — sem isso, uma falha (a API do Reportei já
+// travou minutos sem responder pra essas contas) vira silenciosamente "0 posts",
+// indistinguível de uma conta sem posts no período (ver /api/reportei-posts em
+// server.js, que depende disso pra nunca cachear uma falha como se fosse sucesso).
 async function getReporteiPosts(daysBack = 30) {
-  if (!TOKEN) return [];
+  if (!TOKEN) return { posts: [], failedAccounts: [] };
   const allPosts = [];
+  const failedAccounts = [];
   const entries = Object.entries(ACCOUNTS);
   for (let i = 0; i < entries.length; i++) {
     const [accountLabel, { integrationId }] = entries[i];
@@ -117,10 +122,11 @@ async function getReporteiPosts(daysBack = 30) {
       allPosts.push(...posts);
     } catch (err) {
       console.error(`Erro Reportei ${accountLabel}:`, err.response?.data || err.message);
+      failedAccounts.push(accountLabel);
     }
   }
   allPosts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return allPosts;
+  return { posts: allPosts, failedAccounts };
 }
 
 // Total agregado de visualizações da conta (ig:views) num período exato — usado pro
