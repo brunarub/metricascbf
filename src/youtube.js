@@ -113,6 +113,17 @@ async function getYouTubePosts(maxResults = 50) {
           timestamp:      snippet.publishedAt || '',
           like_count:     parseInt(stats.likeCount    || 0),
           comments_count: parseInt(stats.commentCount || 0),
+          // view_count = statistics.viewCount da videos.list (Data API v3, pública, só
+          // API key) — é o total VITALÍCIO de views do vídeo desde a publicação, NÃO
+          // views ganhas dentro de um período específico. Não é a mesma métrica que o
+          // YouTube Studio mostra quando você filtra por data (esse usa a Analytics
+          // API, `reports.query` com metric=views + startDate/endDate, que exige OAuth
+          // do dono do canal — não implementado aqui). Isso é esperado divergir do
+          // Studio: um vídeo publicado ANTES do período filtrado mas incluído porque
+          // segue recebendo views continua contando o total acumulado dele, não só o
+          // que ganhou nesse período — por isso o dashboard tende a mostrar MAIS do
+          // que o Studio quando o filtro pega vídeos com alguns dias/semanas de idade.
+          // Bater exatamente com o Studio é um projeto à parte (Analytics API + OAuth).
           view_count:     parseInt(stats.viewCount    || 0),
           thumbnail_url:  thumb,
           media_url:      thumb,
