@@ -211,11 +211,12 @@ app.get('/auth/tiktok/callback', async (req, res) => {
   }
 });
 
-// GET /api/tiktok-posts — vídeos das contas TikTok conectadas
-// Resposta sempre no formato { posts, error, stale, staleAgeMin } (mesmo padrão do
-// /api/reportei-posts) — nunca um array solto. Uma chamada que falha/trava (timeout,
-// rate limit, ERR_ABORTED no front-end) não pode virar silenciosamente "sem posts";
-// se já existir um cache anterior, ele é reaproveitado e marcado como `stale`.
+// GET /api/tiktok-posts?since=YYYY-MM-DD — vídeos das contas TikTok conectadas
+// Resposta sempre no formato { posts, error, stale, staleAgeMin, truncated, coveredSince }
+// (mesmo padrão do /api/reportei-posts) — nunca um array solto. Uma chamada que
+// falha/trava (timeout, rate limit, ERR_ABORTED no front-end) não pode virar
+// silenciosamente "sem posts"; se já existir um cache anterior, ele é reaproveitado e
+// marcado como `stale`.
 //
 // ttCache.posts só pode ser gravado quando a busca deu 100% certo (nenhuma conta em
 // failedAccounts) — é o que garante a invariante abaixo: se `ttCache.posts` existe,
@@ -224,34 +225,45 @@ app.get('/auth/tiktok/callback', async (req, res) => {
 // quando `posts` era `[]` por TODAS as contas terem falhado); como array vazio ainda
 // é truthy em JS, o cache-hit em cima devolvia `error: null` por até 15 min depois de
 // uma falha real — o TikTok sumia em silêncio de novo, regressão pro bug original.
-const ttCache = { posts: null, ts: 0 };
+//
+// ttCache.coveredSince guarda até que data o cache cobre (ver getTikTokPosts em
+// src/tiktok.js) — o cache-hit abaixo só serve do cache se ele cobrir pelo menos o
+// `since` pedido agora. Sem essa checagem, um ?since mais antigo que o cache (ex:
+// filtro ampliado de 7 dias pra 1 mês) continuava servindo os mesmos poucos posts de
+// antes por até 15 min, como se o filtro mais longo tivesse sido respeitado — era
+// literalmente isso que fazia `?limit=300` devolver só 50 posts/conta quando o cache
+// já tinha sido populado com um limit=50 anterior (o parâmetro era ignorado no
+// cache-hit). Pedir um período mais antigo força buscar de novo.
+const ttCache = { posts: null, ts: 0, coveredSince: null, truncated: false };
 app.get('/api/tiktok-posts', async (req, res) => {
   if (!process.env.TIKTOK_CLIENT_KEY) return res.json({ posts: [], error: null, stale: false });
   const tokens = readTokens();
   if (!Object.keys(tokens).length) return res.json({ posts: [], error: null, stale: false });
-  if (ttCache.posts && (Date.now() - ttCache.ts) < CACHE_TTL) {
-    return res.json({ posts: ttCache.posts, error: null, stale: false });
+
+  // since opcional (YYYY-MM-DD) — sem ele, getTikTokPosts usa os últimos 30 dias por
+  // padrão (mantém a carga inicial do dashboard rápida). Resolve aqui (não só dentro de
+  // getTikTokPosts) porque o cache-hit abaixo precisa comparar contra o mesmo valor.
+  const since = req.query.since || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
+
+  if (ttCache.posts && (Date.now() - ttCache.ts) < CACHE_TTL && ttCache.coveredSince && ttCache.coveredSince <= since) {
+    return res.json({ posts: ttCache.posts, error: null, stale: false, truncated: ttCache.truncated, coveredSince: ttCache.coveredSince });
   }
+
   // Timing de diagnóstico: getTikTokPosts() já loga por conta/fase (ver src/tiktok.js),
   // esse log fecha o quadro mostrando o tempo total da requisição — útil pra confirmar
   // nos logs do Render se o timeout de 20s realmente está sendo acionado (e por causa
   // de qual conta) ou se o problema é outro.
-  //
-  // Confirmado nos logs do Render: a causa real do timeout/429 persistente não era
-  // renovação de token — era getTikTokPosts() buscando o HISTÓRICO COMPLETO de cada
-  // conta (brasileirao sozinha tem 672 vídeos = ~34 páginas) toda vez que o cache de
-  // 15 min expirava. limit=50 por padrão (mesmo valor de /api/youtube-posts) — cobre
-  // de sobra o uso normal do dashboard e corta drasticamente as requisições à TikTok.
-  const limit = req.query.limit ? parseInt(req.query.limit) : 50;
   const reqStart = Date.now();
   try {
-    const { posts, failedAccounts } = await withTimeout(getTikTokPosts(limit), 20000, 'tiktok-posts');
-    console.log(`/api/tiktok-posts OK em ${Date.now() - reqStart}ms${failedAccounts.length ? ` (parcial: ${failedAccounts.join(', ')})` : ''}`);
+    const { posts, failedAccounts, truncated, coveredSince } = await withTimeout(getTikTokPosts({ since }), 20000, 'tiktok-posts');
+    console.log(`/api/tiktok-posts OK em ${Date.now() - reqStart}ms${failedAccounts.length ? ` (parcial: ${failedAccounts.join(', ')})` : ''}${truncated ? ' (truncado)' : ''}`);
 
     if (failedAccounts.length === 0) {
       ttCache.posts = posts;
       ttCache.ts = Date.now();
-      return res.json({ posts, error: null, stale: false });
+      ttCache.coveredSince = coveredSince;
+      ttCache.truncated = truncated;
+      return res.json({ posts, error: null, stale: false, truncated, coveredSince });
     }
 
     // Falha parcial (algumas contas ok, outras não) — nunca vira o cache "bom" (ver
@@ -260,14 +272,14 @@ app.get('/api/tiktok-posts', async (req, res) => {
     // agora mesmo, sempre com `error` setado — nunca `null` quando alguma conta falhou.
     if (ttCache.posts) {
       const staleAgeMin = Math.round((Date.now() - ttCache.ts) / 60000);
-      return res.json({ posts: ttCache.posts, error: 'tiktok_partial', stale: true, staleAgeMin, failedAccounts });
+      return res.json({ posts: ttCache.posts, error: 'tiktok_partial', stale: true, staleAgeMin, failedAccounts, truncated: ttCache.truncated, coveredSince: ttCache.coveredSince });
     }
-    res.json({ posts, error: 'tiktok_partial', stale: false, failedAccounts });
+    res.json({ posts, error: 'tiktok_partial', stale: false, failedAccounts, truncated, coveredSince });
   } catch (err) {
     console.error(`Erro /api/tiktok-posts (${Date.now() - reqStart}ms):`, err.message);
     if (ttCache.posts) {
       const staleAgeMin = Math.round((Date.now() - ttCache.ts) / 60000);
-      return res.json({ posts: ttCache.posts, error: 'tiktok_timeout', stale: true, staleAgeMin });
+      return res.json({ posts: ttCache.posts, error: 'tiktok_timeout', stale: true, staleAgeMin, truncated: ttCache.truncated, coveredSince: ttCache.coveredSince });
     }
     res.json({ posts: [], error: 'tiktok_timeout', stale: false });
   }
@@ -356,36 +368,40 @@ app.get('/api/reportei-posts', async (req, res) => {
 
 // ─── YouTube ──────────────────────────────────────────────────────────────────
 
-// GET /api/youtube-posts?limit=50 — vídeos dos canais YouTube configurados
-// Mesmo formato de resposta { posts, error, stale, staleAgeMin } que /api/tiktok-posts
-// e /api/reportei-posts — ver comentário acima. Mesma invariante de cache também:
-// ytCache.posts só é gravado num resultado 100% limpo (ver comentário no ttCache).
-const ytCache = { posts: null, ts: 0 };
+// GET /api/youtube-posts?since=YYYY-MM-DD — vídeos dos canais YouTube configurados
+// Mesmo formato de resposta { posts, error, stale, staleAgeMin, truncated, coveredSince }
+// que /api/tiktok-posts e /api/reportei-posts — ver comentários lá (cache por
+// cobertura, nunca grava cache numa falha parcial).
+const ytCache = { posts: null, ts: 0, coveredSince: null, truncated: false };
 app.get('/api/youtube-posts', async (req, res) => {
   if (!process.env.YT_API_KEY) return res.json({ posts: [], error: null, stale: false });
-  if (ytCache.posts && (Date.now() - ytCache.ts) < CACHE_TTL) {
-    return res.json({ posts: ytCache.posts, error: null, stale: false });
+
+  const since = req.query.since || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
+
+  if (ytCache.posts && (Date.now() - ytCache.ts) < CACHE_TTL && ytCache.coveredSince && ytCache.coveredSince <= since) {
+    return res.json({ posts: ytCache.posts, error: null, stale: false, truncated: ytCache.truncated, coveredSince: ytCache.coveredSince });
   }
-  const limit = req.query.limit ? parseInt(req.query.limit) : 50;
   try {
-    const { posts, failedAccounts } = await withTimeout(getYouTubePosts(limit), 20000, 'youtube-posts');
+    const { posts, failedAccounts, truncated, coveredSince } = await withTimeout(getYouTubePosts({ since }), 20000, 'youtube-posts');
 
     if (failedAccounts.length === 0) {
       ytCache.posts = posts;
       ytCache.ts = Date.now();
-      return res.json({ posts, error: null, stale: false });
+      ytCache.coveredSince = coveredSince;
+      ytCache.truncated = truncated;
+      return res.json({ posts, error: null, stale: false, truncated, coveredSince });
     }
 
     if (ytCache.posts) {
       const staleAgeMin = Math.round((Date.now() - ytCache.ts) / 60000);
-      return res.json({ posts: ytCache.posts, error: 'youtube_partial', stale: true, staleAgeMin, failedAccounts });
+      return res.json({ posts: ytCache.posts, error: 'youtube_partial', stale: true, staleAgeMin, failedAccounts, truncated: ytCache.truncated, coveredSince: ytCache.coveredSince });
     }
-    res.json({ posts, error: 'youtube_partial', stale: false, failedAccounts });
+    res.json({ posts, error: 'youtube_partial', stale: false, failedAccounts, truncated, coveredSince });
   } catch (err) {
     console.error('Erro /api/youtube-posts:', err.message);
     if (ytCache.posts) {
       const staleAgeMin = Math.round((Date.now() - ytCache.ts) / 60000);
-      return res.json({ posts: ytCache.posts, error: 'youtube_timeout', stale: true, staleAgeMin });
+      return res.json({ posts: ytCache.posts, error: 'youtube_timeout', stale: true, staleAgeMin, truncated: ytCache.truncated, coveredSince: ytCache.coveredSince });
     }
     res.json({ posts: [], error: 'youtube_timeout', stale: false });
   }
@@ -488,13 +504,13 @@ app.get('/api/resumo', async (req, res) => {
     }
 
     // ── TikTok: filtrar e somar por período ──
-    // 300 (mesma margem generosa usada em getYouTubePosts(300) logo abaixo) — o
-    // default de getTikTokPosts() é 50 (dashboard), baixo demais pra relatórios que
-    // podem pedir um período mais antigo; nunca usar limit indefinido aqui (ver
-    // comentário em getTikTokPosts em src/tiktok.js sobre por que isso derrubava a
-    // rota com rate limit da TikTok).
+    // Passa o `since` do próprio relatório — getTikTokPosts pagina até cobrir essa
+    // data (ou até o teto de segurança de 400 vídeos/conta), em vez de um número fixo
+    // que truncava silenciosamente relatórios de período mais longo (ver comentário
+    // em getTikTokPosts em src/tiktok.js).
     try {
-      const { posts: ttPosts } = await getTikTokPosts(300);
+      const { posts: ttPosts, truncated: ttTruncated } = await getTikTokPosts({ since });
+      if (ttTruncated) console.warn(`/api/resumo: TikTok truncado pro período ${since}–${until} (teto de segurança atingido)`);
       const porConta = {};
       for (const p of ttPosts) {
         if (!dentroDoPeriodo(p.timestamp)) continue;
@@ -509,11 +525,10 @@ app.get('/api/resumo', async (req, res) => {
       console.error('Erro resumo TikTok:', err.message);
     }
 
-    // ── YouTube: getYouTubePosts(300) busca até 300 vídeos por canal, filtra e soma ──
-    // Nota: 300 é uma margem generosa pra garantir que cobre qualquer período razoável
-    // de relatório sem deixar de trazer vídeos antigos o suficiente.
+    // ── YouTube: filtrar e somar por período (mesmo princípio do TikTok acima) ──
     try {
-      const { posts: ytPosts } = await getYouTubePosts(300);
+      const { posts: ytPosts, truncated: ytTruncated } = await getYouTubePosts({ since });
+      if (ytTruncated) console.warn(`/api/resumo: YouTube truncado pro período ${since}–${until} (teto de segurança atingido)`);
       const porConta = {};
       for (const p of ytPosts) {
         if (!dentroDoPeriodo(p.timestamp)) continue;

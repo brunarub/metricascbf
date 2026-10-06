@@ -30,32 +30,59 @@ function parseDurationSeconds(iso) {
           parseInt(m[3] || 0);
 }
 
-// Busca IDs dos uploads recentes de um canal (via uploads playlist)
-async function getUploadIds(channelId, maxResults) {
+// Busca IDs dos uploads de um canal (via uploads playlist), paginando até cobrir
+// `sinceTs` (timestamp em ms) ou até o teto de segurança `safetyLimit` — NÃO busca
+// mais um número fixo de vídeos ("últimos N"). A playlist de uploads de um canal
+// (ID "UU" + channelId[2:]) devolve os vídeos mais recentes primeiro; cada item já
+// traz `contentDetails.videoPublishedAt`, então dá pra decidir quando parar sem
+// precisar de uma chamada extra a /videos.
+//
+// "Cobrir sinceTs" = já vimos, em alguma página, um vídeo publicado antes de sinceTs
+// — nesse ponto já temos todos os vídeos entre sinceTs e agora. Usa o MÍNIMO de
+// videoPublishedAt de toda a página (não só o último item) — mais seguro que assumir
+// uma ordem interna estrita da página, que a documentação da API não garante.
+//
+// Se o teto de segurança for atingido antes de cobrir sinceTs, devolve truncated=true
+// e oldestFetchedTs = a data do vídeo mais antigo buscado, pra quem chamou saber até
+// onde os dados são confiáveis em vez de fingir cobertura total.
+async function getUploadIds(channelId, sinceTs, safetyLimit) {
   const apiKey = process.env.YT_API_KEY;
-  // A playlist de uploads de um canal tem ID "UU" + channelId[2:]
   const playlistId = 'UU' + channelId.slice(2);
   const ids = [];
   let pageToken = null;
+  let apiHasMore = true;
+  let coveredSince = false;
+  let oldestFetchedTs = null;
 
-  while (ids.length < maxResults) {
+  while (apiHasMore && ids.length < safetyLimit && !coveredSince) {
     const params = {
       part: 'contentDetails',
       playlistId,
-      maxResults: Math.min(50, maxResults - ids.length),
+      maxResults: Math.min(50, safetyLimit - ids.length),
       key: apiKey,
     };
     if (pageToken) params.pageToken = pageToken;
 
     const res = await axios.get(`${BASE_URL}/playlistItems`, { params });
     const items = res.data.items || [];
+    if (items.length === 0) break;
     items.forEach(item => ids.push(item.contentDetails.videoId));
 
+    const publishedTimes = items
+      .map(item => item.contentDetails?.videoPublishedAt ? new Date(item.contentDetails.videoPublishedAt).getTime() : null)
+      .filter(t => t !== null);
+    if (publishedTimes.length) {
+      const oldestInPageTs = Math.min(...publishedTimes);
+      if (oldestFetchedTs === null || oldestInPageTs < oldestFetchedTs) oldestFetchedTs = oldestInPageTs;
+      if (oldestInPageTs < sinceTs) coveredSince = true;
+    }
+
     pageToken = res.data.nextPageToken;
-    if (!pageToken || items.length === 0) break;
+    apiHasMore = !!pageToken;
   }
 
-  return ids;
+  const truncated = apiHasMore && !coveredSince;
+  return { ids: ids.slice(0, safetyLimit), truncated, oldestFetchedTs };
 }
 
 // Busca detalhes de até 50 vídeos por chamada (estatísticas + duração + snippet)
@@ -78,18 +105,37 @@ async function getVideoDetails(videoIds) {
   return all;
 }
 
+const DEFAULT_LOOKBACK_DAYS = 30;
+const SAFETY_LIMIT_PER_ACCOUNT = 400;
+
 // Retorna posts normalizados de todos os canais YouTube configurados, junto com a
 // lista de canais que falharam — sem isso, uma falha (timeout, quota da API etc)
 // vira silenciosamente "0 vídeos", indistinguível de um canal sem posts no período.
 // media_type = 'SHORTS' se duração ≤ 60s, 'VIDEO' caso contrário.
-async function getYouTubePosts(maxResults = 50) {
+//
+// since: cobre o histórico até essa data (Date, timestamp ou string ISO) em vez de um
+// número fixo de vídeos — mesmo princípio e mesmo motivo de getTikTokPosts em
+// src/tiktok.js (um limit fixo trunca silenciosamente um filtro de período longo).
+// Sem since, usa os últimos 30 dias por padrão.
+async function getYouTubePosts({ since, safetyLimit = SAFETY_LIMIT_PER_ACCOUNT } = {}) {
+  const sinceTs = since ? new Date(since).getTime() : Date.now() - DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
   const accounts = getYouTubeAccounts();
   const allPosts = [];
   const failedAccounts = [];
+  // truncated/coveredSinceTs: ver getUploadIds — coveredSinceTs é o pior caso (mais
+  // recente = menos cobertura) entre os canais que deram certo.
+  let truncated = false;
+  let coveredSinceTs = sinceTs;
 
   for (const account of accounts) {
     try {
-      const videoIds = await getUploadIds(account.id, maxResults);
+      const { ids: videoIds, truncated: acctTruncated, oldestFetchedTs } = await getUploadIds(account.id, sinceTs, safetyLimit);
+      if (acctTruncated) {
+        truncated = true;
+        const acctCoveredSinceTs = oldestFetchedTs ?? sinceTs;
+        if (acctCoveredSinceTs > coveredSinceTs) coveredSinceTs = acctCoveredSinceTs;
+        console.log(`YouTube: ${account.label} TRUNCADO — atingiu o teto de ${safetyLimit} vídeos antes de cobrir o período pedido; cobre só até ${new Date(acctCoveredSinceTs).toISOString().substring(0, 10)}`);
+      }
       if (!videoIds.length) continue;
 
       const videos = await getVideoDetails(videoIds);
@@ -138,7 +184,7 @@ async function getYouTubePosts(maxResults = 50) {
   }
 
   allPosts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return { posts: allPosts, failedAccounts };
+  return { posts: allPosts, failedAccounts, truncated, coveredSince: new Date(coveredSinceTs).toISOString().substring(0, 10) };
 }
 
 module.exports = { getYouTubePosts, getYouTubeAccounts };

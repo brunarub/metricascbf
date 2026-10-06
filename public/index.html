@@ -320,14 +320,53 @@
     // "sem posts" com "não consegui carregar" (ver /api/*-posts em server.js, que
     // agora sempre respondem { posts, error, stale, staleAgeMin }).
     let sourceStatus = {
-      instagram: { unavailable: false, stale: false, staleAgeMin: 0 },
-      youtube:   { unavailable: false, stale: false, staleAgeMin: 0 },
-      tiktok:    { unavailable: false, stale: false, staleAgeMin: 0 },
-      reportei:  { unavailable: false, stale: false, staleAgeMin: 0 },
+      instagram: { unavailable: false, stale: false, staleAgeMin: 0, truncated: false, coveredSince: null },
+      youtube:   { unavailable: false, stale: false, staleAgeMin: 0, truncated: false, coveredSince: null },
+      tiktok:    { unavailable: false, stale: false, staleAgeMin: 0, truncated: false, coveredSince: null },
+      reportei:  { unavailable: false, stale: false, staleAgeMin: 0, truncated: false, coveredSince: null },
     };
     const SOURCE_LABELS = { instagram: 'Instagram', youtube: 'YouTube', tiktok: 'TikTok', reportei: 'Brasileirão/Seleção (Reportei)' };
+    // truncated conta como "não 100% completo" igual unavailable/stale — um resultado
+    // truncado tem dados reais, mas não cobre o período inteiro pedido (ver
+    // /api/tiktok-posts e /api/youtube-posts em server.js), então não pode aparecer
+    // como "Métricas completas".
     function anySourceDown() {
-      return Object.values(sourceStatus).some(s => s.unavailable || s.stale);
+      return Object.values(sourceStatus).some(s => s.unavailable || s.stale || s.truncated);
+    }
+
+    function fmtDateShort(isoDateStr) {
+      if (!isoDateStr) return '?';
+      const [, m, d] = isoDateStr.split('-');
+      return `${d}/${m}`;
+    }
+
+    // since enviado pra /api/tiktok-posts e /api/youtube-posts: a partir do filtro
+    // De/Até do usuário, com 1 dia de folga (o filtro pensa no fuso de Brasília; o
+    // backend compara contra create_time/publishedAt em UTC — mesma cautela de
+    // toSaoPauloDateStr acima, pra nunca cortar um vídeo de borda por causa do fuso).
+    // null quando não há filtro de início — o backend usa 30 dias por padrão.
+    function computeSinceParam() {
+      const dateStart = document.getElementById('date-start').value;
+      if (!dateStart) return null;
+      const d = new Date(dateStart + 'T00:00:00-03:00');
+      d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().substring(0, 10);
+    }
+
+    // Chamado quando o filtro De/Até muda — se o novo início pedir mais cobertura do
+    // que o TikTok/YouTube já têm carregado (sourceStatus.*.coveredSince), recarrega
+    // tudo com o novo `since`. Filtro padrão (7 dias) e ampliações dentro do que já
+    // está coberto não disparam nada — só busca mais fundo quando precisa de verdade.
+    async function maybeReloadForDateFilter() {
+      const neededSince = computeSinceParam();
+      if (!neededSince) return false;
+      const needsDeeperTikTok = !sourceStatus.tiktok.coveredSince || neededSince < sourceStatus.tiktok.coveredSince;
+      const needsDeeperYouTube = !sourceStatus.youtube.coveredSince || neededSince < sourceStatus.youtube.coveredSince;
+      if (!needsDeeperTikTok && !needsDeeperYouTube) return false;
+      document.getElementById('phase-indicator').textContent = '🔎 Buscando período mais longo (TikTok/YouTube)...';
+      document.getElementById('phase-indicator').className = 'phase-badge loading';
+      await loadPosts();
+      return true;
     }
 
     // fetch com timeout próprio no front-end — segunda camada de proteção: mesmo
@@ -360,12 +399,14 @@
       throw lastErr;
     }
 
-    // Extrai { posts, unavailable, stale, staleAgeMin } de um resultado do
-    // Promise.allSettled contra uma das 4 rotas /api/*-posts — todas respondem no
-    // mesmo formato { posts, error, stale, staleAgeMin }.
+    // Extrai { posts, unavailable, stale, staleAgeMin, truncated, coveredSince } de um
+    // resultado do Promise.allSettled contra uma das 4 rotas /api/*-posts — todas
+    // respondem no mesmo formato { posts, error, stale, staleAgeMin }; tiktok-posts e
+    // youtube-posts também trazem truncated/coveredSince (undefined nas outras 2,
+    // viram false/null abaixo — não existe o conceito de paginação por período lá).
     async function parseSourceResult(result) {
       if (result.status !== 'fulfilled') {
-        return { posts: [], unavailable: true, stale: false, staleAgeMin: 0 };
+        return { posts: [], unavailable: true, stale: false, staleAgeMin: 0, truncated: false, coveredSince: null };
       }
       try {
         const data = await result.value.json();
@@ -375,9 +416,11 @@
           unavailable: !!data.error && posts.length === 0,
           stale: !!data.stale,
           staleAgeMin: data.staleAgeMin || 0,
+          truncated: !!data.truncated,
+          coveredSince: data.coveredSince || null,
         };
       } catch (err) {
-        return { posts: [], unavailable: true, stale: false, staleAgeMin: 0 };
+        return { posts: [], unavailable: true, stale: false, staleAgeMin: 0, truncated: false, coveredSince: null };
       }
     }
 
@@ -386,11 +429,13 @@
       if (!el) return;
       const down = [];
       const stale = [];
+      const truncated = [];
       Object.entries(sourceStatus).forEach(([key, s]) => {
         if (s.stale) stale.push(`${SOURCE_LABELS[key]} (${s.staleAgeMin} min atrás)`);
         else if (s.unavailable) down.push(SOURCE_LABELS[key]);
+        else if (s.truncated) truncated.push(`${SOURCE_LABELS[key]} (cobre só desde ${fmtDateShort(s.coveredSince)})`);
       });
-      if (!down.length && !stale.length) {
+      if (!down.length && !stale.length && !truncated.length) {
         el.hidden = true;
         return;
       }
@@ -398,6 +443,9 @@
       const bits = [];
       if (down.length) bits.push(`${down.join(', ')} indisponível no momento`);
       if (stale.length) bits.push(`mostrando último dado disponível pra ${stale.join(', ')}`);
+      // Truncado: a conta tem posts demais no período pedido pro teto de segurança da
+      // busca — os dados que vieram são reais, só não cobrem o período inteiro.
+      if (truncated.length) bits.push(`${truncated.join(', ')} — muitos posts no período, dados parciais`);
       el.textContent = `⚠️ ${bits.join(' — ')}. O restante do dashboard segue normal.`;
     }
 
@@ -749,11 +797,17 @@
         const missing = [];
         if (platformFilter !== 'instagram' && sourceStatus.tiktok.unavailable) missing.push('TikTok');
         if (platformFilter !== 'instagram' && sourceStatus.youtube.unavailable) missing.push('YouTube');
+        // Truncado: tem dados reais, só não cobre o período inteiro (teto de segurança
+        // da busca, ver /api/tiktok-posts e /api/youtube-posts em server.js) — soma
+        // menos do que devia sem avisar não é diferente de "indisponível" pra quem olha
+        // o total.
+        if (platformFilter !== 'instagram' && sourceStatus.tiktok.truncated) missing.push(`TikTok (parcial, desde ${fmtDateShort(sourceStatus.tiktok.coveredSince)})`);
+        if (platformFilter !== 'instagram' && sourceStatus.youtube.truncated) missing.push(`YouTube (parcial, desde ${fmtDateShort(sourceStatus.youtube.coveredSince)})`);
         igFailedAccounts.forEach(label => missing.push(`Instagram (${label})`));
 
         el.textContent = fmt(grandTotal) + (missing.length ? ' *' : '');
         el.classList.toggle('partial', missing.length > 0);
-        el.title = missing.length ? `Total parcial — não inclui: ${missing.join(', ')} (indisponível no momento)` : '';
+        el.title = missing.length ? `Total parcial — não inclui (ou inclui parcialmente): ${missing.join(', ')}` : '';
 
         // Legenda
         const parts = [];
@@ -878,8 +932,15 @@
         // Brasileirão só tem posts de Instagram via Reportei — se ele estiver fora do
         // ar, o card "Instagram" segue de pé (Brasileiras/Copa do Brasil vêm direto da
         // Meta), mas com um aviso de que os números não incluem Brasileirão agora.
-        const partialNote = (plat === 'instagram' && sourceStatus.reportei.unavailable)
+        let partialNote = (plat === 'instagram' && sourceStatus.reportei.unavailable)
           ? '<div class="platform-cmp-sub" style="color:#6b5106">⚠️ parcial — Brasileirão indisponível</div>' : '';
+        // TikTok/YouTube truncados: a conta tem mais posts no período do que o teto de
+        // segurança da busca cobre (ver /api/tiktok-posts e /api/youtube-posts em
+        // server.js) — os números aqui são reais, mas não representam o período
+        // inteiro. Nunca pode aparecer como se fosse o total completo.
+        if (downSrc && sourceStatus[downSrc]?.truncated) {
+          partialNote += `<div class="platform-cmp-sub" style="color:#6b5106">⚠️ parcial — cobre só desde ${fmtDateShort(sourceStatus[downSrc].coveredSince)}</div>`;
+        }
         // YouTube e TikTok: a API pública (Data API v3 / video.list) só expõe views
         // VITALÍCIAS por vídeo, não views ganhas dentro do período filtrado — bater
         // com o YouTube/TikTok Studio exigiria a Analytics API com OAuth do canal
@@ -1099,10 +1160,16 @@
     // degradam de forma independente.
     async function loadPosts() {
       try {
+        // since (opcional): deriva do filtro De/Até atual — manda TikTok/YouTube
+        // buscarem fundo o suficiente pra cobrir o período, em vez de um teto fixo de
+        // vídeos que truncava silenciosamente filtros de mês/trimestre (ver
+        // computeSinceParam acima e getTikTokPosts/getYouTubePosts em src/).
+        const sinceParam = computeSinceParam();
+        const sinceQuery = sinceParam ? `?since=${sinceParam}` : '';
         const [igResult, ytResult, ttResult, rpResult] = await Promise.allSettled([
           fetchSourceWithRetry('/api/posts'),
-          fetchSourceWithRetry('/api/youtube-posts'),
-          fetchSourceWithRetry('/api/tiktok-posts'),
+          fetchSourceWithRetry(`/api/youtube-posts${sinceQuery}`),
+          fetchSourceWithRetry(`/api/tiktok-posts${sinceQuery}`),
           fetchSourceWithRetry('/api/reportei-posts'),
         ]);
 
@@ -1126,10 +1193,10 @@
         const rpPosts = rpParsed.posts;
 
         sourceStatus = {
-          instagram: { unavailable: igParsed.unavailable, stale: igParsed.stale, staleAgeMin: igParsed.staleAgeMin },
-          youtube:   { unavailable: ytParsed.unavailable, stale: ytParsed.stale, staleAgeMin: ytParsed.staleAgeMin },
-          tiktok:    { unavailable: ttParsed.unavailable, stale: ttParsed.stale, staleAgeMin: ttParsed.staleAgeMin },
-          reportei:  { unavailable: rpParsed.unavailable, stale: rpParsed.stale, staleAgeMin: rpParsed.staleAgeMin },
+          instagram: { unavailable: igParsed.unavailable, stale: igParsed.stale, staleAgeMin: igParsed.staleAgeMin, truncated: false, coveredSince: null },
+          youtube:   { unavailable: ytParsed.unavailable, stale: ytParsed.stale, staleAgeMin: ytParsed.staleAgeMin, truncated: ytParsed.truncated, coveredSince: ytParsed.coveredSince },
+          tiktok:    { unavailable: ttParsed.unavailable, stale: ttParsed.stale, staleAgeMin: ttParsed.staleAgeMin, truncated: ttParsed.truncated, coveredSince: ttParsed.coveredSince },
+          reportei:  { unavailable: rpParsed.unavailable, stale: rpParsed.stale, staleAgeMin: rpParsed.staleAgeMin, truncated: false, coveredSince: null },
         };
         renderSourceBanner();
 
@@ -1199,7 +1266,13 @@
       phase = 2;
       if (anySourceDown()) {
         const down = Object.entries(sourceStatus).filter(([, s]) => s.unavailable || s.stale).map(([k]) => SOURCE_LABELS[k]);
-        document.getElementById('phase-indicator').textContent = `⚠️ Métricas parciais — ${down.join(', ')} indisponível`;
+        const truncatedOnly = Object.entries(sourceStatus)
+          .filter(([, s]) => !s.unavailable && !s.stale && s.truncated)
+          .map(([k, s]) => `${SOURCE_LABELS[k]} (desde ${fmtDateShort(s.coveredSince)})`);
+        const bits = [];
+        if (down.length) bits.push(`${down.join(', ')} indisponível`);
+        if (truncatedOnly.length) bits.push(`${truncatedOnly.join(', ')} parcial`);
+        document.getElementById('phase-indicator').textContent = `⚠️ Métricas parciais — ${bits.join('; ')}`;
         document.getElementById('phase-indicator').className = 'phase-badge partial';
       } else {
         document.getElementById('phase-indicator').textContent = '✅ Métricas completas';
@@ -1222,7 +1295,13 @@
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('type-filter').addEventListener('change', renderTable);
     document.getElementById('platform-filter').addEventListener('change', renderTable);
-    document.getElementById('date-start').addEventListener('change', renderTable);
+    // date-start: se o novo início pedir mais cobertura de TikTok/YouTube do que já
+    // temos carregado, recarrega tudo com o since mais fundo (maybeReloadForDateFilter
+    // já chama renderTable sozinho via loadPosts quando recarrega).
+    document.getElementById('date-start').addEventListener('change', async () => {
+      const reloaded = await maybeReloadForDateFilter();
+      if (!reloaded) renderTable();
+    });
     document.getElementById('date-end').addEventListener('change', renderTable);
 
     // Ordenação

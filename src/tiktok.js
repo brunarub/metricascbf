@@ -118,20 +118,34 @@ function needsProactiveRefresh(tokenData) {
   return Date.now() >= (tokenData.expires_at - ACCESS_TOKEN_REFRESH_MARGIN_MS);
 }
 
-// Busca vídeos de uma conta usando o access_token, paginando conforme necessário.
-// limit = null busca TODO o histórico disponível da conta (segue os cursores até acabar,
-// igual já fazemos com o Instagram em src/instagram.js). A API do TikTok limita cada
-// página a no máximo 20 vídeos (max_count), então paginamos com cursor/has_more.
-async function fetchTikTokVideos(accessToken, limit = null) {
+// Busca vídeos de uma conta usando o access_token, paginando até cobrir `sinceTs`
+// (timestamp em ms) ou até o teto de segurança `safetyLimit` — NÃO busca mais um
+// número fixo de vídeos ("últimos N"). A API do TikTok retorna os vídeos mais
+// recentes primeiro (newest-first) e limita cada página a no máximo 20 (max_count),
+// paginando por cursor/has_more.
+//
+// "Cobrir sinceTs" = já vimos, em alguma página, um vídeo publicado antes de sinceTs
+// — nesse ponto sabemos que já temos TODOS os vídeos entre sinceTs e agora, então não
+// precisa buscar mais páginas. Usa o MÍNIMO de create_time de toda a página (não só o
+// último item) — mais seguro que assumir que a API sempre devolve cada página já
+// ordenada internamente, já que isso não é documentado oficialmente.
+//
+// Se o teto de segurança for atingido ANTES de cobrir sinceTs (conta com volume muito
+// alto), devolve truncated=true e oldestFetchedTs = a data do vídeo mais antigo que
+// conseguimos buscar — pra quem chamou saber exatamente até onde os dados são
+// confiáveis, em vez de fingir que cobriu o período inteiro.
+async function fetchTikTokVideos(accessToken, sinceTs, safetyLimit) {
   const fields = 'id,title,cover_image_url,share_url,video_description,duration,height,width,title,embed_link,like_count,comment_count,share_count,view_count,create_time';
   const url = 'https://open.tiktokapis.com/v2/video/list/';
   const pageSize = 20; // máximo permitido por página pela API do TikTok
 
   let videos = [];
   let cursor = 0;
-  let hasMore = true;
+  let apiHasMore = true;
+  let coveredSince = false;
+  let oldestFetchedTs = null;
 
-  while (hasMore && (!limit || videos.length < limit)) {
+  while (apiHasMore && videos.length < safetyLimit && !coveredSince) {
     let res;
     for (let attempt = 1; ; attempt++) {
       try {
@@ -159,32 +173,53 @@ async function fetchTikTokVideos(accessToken, limit = null) {
     const page = res.data?.data?.videos || [];
     if (page.length === 0) break;
     videos = videos.concat(page);
-    hasMore = !!res.data?.data?.has_more;
+    apiHasMore = !!res.data?.data?.has_more;
     cursor = res.data?.data?.cursor || cursor;
-    if (hasMore) await sleep(300);
+
+    const oldestInPageTs = Math.min(...page.map(v => v.create_time)) * 1000;
+    if (oldestFetchedTs === null || oldestInPageTs < oldestFetchedTs) oldestFetchedTs = oldestInPageTs;
+    if (oldestInPageTs < sinceTs) coveredSince = true;
+
+    if (apiHasMore && !coveredSince && videos.length < safetyLimit) await sleep(300);
   }
 
-  return limit ? videos.slice(0, limit) : videos;
+  // truncated: ainda existia mais histórico (apiHasMore) e paramos só porque batemos
+  // no teto de segurança, sem nunca ter coberto sinceTs de verdade.
+  const truncated = apiHasMore && !coveredSince;
+  return { videos: videos.slice(0, safetyLimit), truncated, oldestFetchedTs };
 }
+
+const DEFAULT_LOOKBACK_DAYS = 30;
+const SAFETY_LIMIT_PER_ACCOUNT = 400;
 
 // Retorna posts normalizados de todas as contas TikTok conectadas, junto com a lista
 // de contas que falharam (timeout, rate limit, token inválido etc) — sem essa lista,
 // uma falha parcial (ou total) vira silenciosamente "0 posts", indistinguível de uma
 // conta que legitimamente não postou nada no período.
 //
-// limit = 50 por padrão (igual getYouTubePosts, ver src/youtube.js) — NÃO usar null
-// (histórico completo) aqui como fazíamos antes. Achado nos logs do Render: a conta
-// brasileirao sozinha tem 672 vídeos, e com 20 vídeos por página (máximo da API do
-// TikTok) isso é ~34 requisições sequenciais só pra essa conta, toda vez que o cache
-// de 15 min expira — 30-40s de chamadas em sequência, e é exatamente isso (não o
-// refresh de token, já verificado e descartado) que estoura o rate limit (429) da
-// TikTok nas 3 contas e trava a rota nos 20s de timeout. Quem precisar do histórico
-// completo (ex: /api/resumo em server.js, pra relatórios de período específico) deve
-// passar um limit explícito e generoso — nunca null.
-async function getTikTokPosts(limit = 50) {
+// since: cobre o histórico até essa data (Date, timestamp ou string ISO) em vez de um
+// número fixo de vídeos. Sem since, usa os últimos 30 dias por padrão — mantém a
+// primeira carga do dashboard rápida (cold start do Render) sem truncar silenciosamente
+// um filtro de período mais longo (mês/trimestre), que é exatamente o bug do limit=50
+// fixo que isso substitui: um filtro de setembro inteiro batia no teto de 50 vídeos por
+// conta e cortava o mês pela metade sem avisar (Brasileiras TikTok: 30 de 87 posts reais
+// do período, por exemplo).
+//
+// ATENÇÃO histórica: a versão anterior (limit=50 fixo) existia pra evitar buscar o
+// HISTÓRICO COMPLETO a cada chamada (brasileirao sozinha tem 672 vídeos = ~34 páginas,
+// o que estourava o rate limit 429 da TikTok — ver comentário em fetchTikTokVideos).
+// since-based preserva essa proteção (`safetyLimit`, ver fetchTikTokVideos) sem
+// precisar escolher entre "rápido" e "completo": a maioria dos filtros reais (dias,
+// semanas, 1 mês) precisa de bem menos que 400 vídeos por conta pra cobrir o período.
+async function getTikTokPosts({ since, safetyLimit = SAFETY_LIMIT_PER_ACCOUNT } = {}) {
+  const sinceTs = since ? new Date(since).getTime() : Date.now() - DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
   const tokens = readTokens();
   const allPosts = [];
   const failedAccounts = [];
+  // truncated/coveredSinceTs: ver fetchTikTokVideos — coveredSinceTs é o pior caso
+  // (mais recente = menos cobertura) entre as contas que deram certo; nunca otimista.
+  let truncated = false;
+  let coveredSinceTs = sinceTs;
 
   const entries = Object.entries(tokens);
   for (let i = 0; i < entries.length; i++) {
@@ -226,9 +261,9 @@ async function getTikTokPosts(limit = 50) {
 
       // Tenta buscar; se ainda assim der 401 (token revogado, relógio de expiração
       // impreciso etc), renova reativamente como antes.
-      let videos;
+      let result;
       try {
-        videos = await fetchTikTokVideos(access_token, limit);
+        result = await fetchTikTokVideos(access_token, sinceTs, safetyLimit);
       } catch (err) {
         if (err.response?.status === 401 && refresh_token) {
           const t0 = Date.now();
@@ -238,13 +273,21 @@ async function getTikTokPosts(limit = 50) {
           refresh_token = renewed.refresh_token || refresh_token;
           saveRenewed(access_token, refresh_token, renewed.expires_in);
           console.log(`TikTok: token de ${accountLabel} renovado (401 reativo) em ${Date.now() - t0}ms`);
-          videos = await fetchTikTokVideos(access_token, limit);
+          result = await fetchTikTokVideos(access_token, sinceTs, safetyLimit);
         } else {
           throw err;
         }
       }
 
-      console.log(`TikTok: ${accountLabel} OK — ${videos.length} vídeos em ${Date.now() - acctStart}ms`);
+      const { videos, truncated: acctTruncated, oldestFetchedTs } = result;
+      if (acctTruncated) {
+        truncated = true;
+        const acctCoveredSinceTs = oldestFetchedTs ?? sinceTs;
+        if (acctCoveredSinceTs > coveredSinceTs) coveredSinceTs = acctCoveredSinceTs;
+        console.log(`TikTok: ${accountLabel} TRUNCADO — atingiu o teto de ${safetyLimit} vídeos antes de cobrir o período pedido; cobre só até ${new Date(acctCoveredSinceTs).toISOString().substring(0, 10)}`);
+      }
+
+      console.log(`TikTok: ${accountLabel} OK — ${videos.length} vídeos em ${Date.now() - acctStart}ms${acctTruncated ? ' (truncado)' : ''}`);
       for (const v of videos) {
         allPosts.push({
           id:             'tt_' + v.id,
@@ -270,7 +313,7 @@ async function getTikTokPosts(limit = 50) {
   }
 
   allPosts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return { posts: allPosts, failedAccounts };
+  return { posts: allPosts, failedAccounts, truncated, coveredSince: new Date(coveredSinceTs).toISOString().substring(0, 10) };
 }
 
 module.exports = { getTikTokPosts, getAuthUrl, exchangeCode, readTokens, writeTokensLocal, persistTokens };
